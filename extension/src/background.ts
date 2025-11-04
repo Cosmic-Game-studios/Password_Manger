@@ -23,6 +23,9 @@ import {
 const STORAGE_KEY = "vaultlight.encryptedVault";
 const META_KEY = "vaultlight.meta";
 const AUTO_LOCK_MS = 5 * 60 * 1000;
+const EXTENSION_DISABLED = true;
+const DISABLED_MESSAGE =
+  "Vaultlight extension is temporarily disabled while we complete upcoming improvements.";
 
 let encryptedVault: EncryptedVault | null = null;
 let vaultMeta: VaultMeta | null = null;
@@ -205,10 +208,12 @@ function lockVault(reason?: string) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
+  if (EXTENSION_DISABLED) return;
   void loadFromStorage();
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  if (EXTENSION_DISABLED) return;
   void loadFromStorage();
 });
 
@@ -284,6 +289,21 @@ function ensureHostMatches(entry: VaultEntry, host: string | null): boolean {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const { type } = message ?? {};
+
+  if (EXTENSION_DISABLED) {
+    if (type === "vaultlight.getStatus") {
+      sendResponse({
+        success: false,
+        hasEncrypted: false,
+        unlocked: false,
+        meta: null,
+        error: DISABLED_MESSAGE,
+      });
+    } else {
+      sendResponse({ success: false, error: DISABLED_MESSAGE });
+    }
+    return true;
+  }
 
   switch (type) {
     case "vaultlight.storeEncryptedVault": {
