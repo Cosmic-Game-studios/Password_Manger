@@ -51,7 +51,7 @@ export function generatePassword(options: PasswordOptions): string {
     if (typeof globalThis !== "undefined" && globalThis.crypto?.getRandomValues) {
       return globalThis.crypto;
     }
-    throw new Error("Konnte keine kryptografisch sichere Zufallsquelle finden.");
+    throw new Error("Could not locate a cryptographically secure random source.");
   })();
   const combined = filteredPools.join("");
   const indices = new Uint32Array(options.length);
@@ -121,20 +121,20 @@ export function assessStrength(password: string): StrengthAssessment {
 
   const suggestions: string[] = [];
   if (password.length < 16) {
-    suggestions.push("Erhöhe die Passwortlänge auf mindestens 16 Zeichen.");
+    suggestions.push("Increase the password length to at least 16 characters.");
   }
   if (characterSets < 3) {
-    suggestions.push("Nutze eine Mischung aus Groß-/Kleinbuchstaben, Ziffern und Symbolen.");
+    suggestions.push("Use a mix of uppercase, lowercase, digits, and symbols.");
   }
   if (/(.)\1{2,}/.test(password)) {
-    suggestions.push("Vermeide wiederholte Zeichenfolgen.");
+    suggestions.push("Avoid repeated character sequences.");
   }
 
   const crackTime = (() => {
-    if (score >= 6) return "> Jahrtausende";
-    if (score === 5) return "> Jahrzehnte";
-    if (score >= 3) return "einige Monate";
-    return "Sekunden";
+    if (score >= 6) return "> millennia";
+    if (score === 5) return "> decades";
+    if (score >= 3) return "several months";
+    return "seconds";
   })();
 
   return {

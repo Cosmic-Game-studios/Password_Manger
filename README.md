@@ -1,6 +1,23 @@
 # Vaultlight - Local Password Manager
 
-Vaultlight is a Next.js powered password manager that runs entirely in the browser. All credentials are encrypted on the client with AES-GCM (256 bit) and stored locally. Every entry is automatically checked against public breach sources and a bundled dark web sample so you get instant warnings before reusing compromised secrets.
+[![License: MIT](https://img.shields.io/badge/License-MIT-success.svg)](LICENSE)
+[![Built with TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+Vaultlight is a Next.js powered password manager that runs entirely in the browser. Credentials never leave the client: they are encrypted with AES-GCM (256 bit) and stored in the user's browser. Every entry triggers an automatic breach scan across public APIs and curated dark web data so you get ahead of compromised secrets immediately.
+
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Security and Architecture](#security-and-architecture)
+- [Chrome Extension (Autofill)](#chrome-extension-autofill)
+- [Scripts](#scripts)
+- [Notes](#notes)
+- [Project Structure](#project-structure)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
 
 ## Features
 
@@ -68,5 +85,27 @@ Extension safeguards:
 - Clearing browser data deletes the vault; export and backup are not yet implemented.
 - Production deployments should integrate a dedicated breach intelligence backend.
 - Clipboard actions rely on the browser allowing clipboard access.
+
+## Project Structure
+
+```
+├─ src/app          # Next.js app router pages, layout, and UI
+├─ src/core         # Browser-side crypto, leak detection, password generation
+├─ src/server       # API-facing helpers and threat intelligence providers
+├─ extension        # Chromium extension (background worker + popup UI)
+└─ public           # Static assets
+```
+
+## Contributing
+
+We welcome contributions! Please review the [contribution guide](CONTRIBUTING.md) for setup instructions, coding standards, and the pull request checklist. By participating you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+If you discover a vulnerability, please follow the responsible disclosure process outlined in [SECURITY.md](SECURITY.md). For general questions feel free to open an issue, but never post sensitive details publicly.
+
+## License
+
+Vaultlight is available under the [MIT License](LICENSE).
 
 Happy testing! Issues and feature requests are welcome.

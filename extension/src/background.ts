@@ -60,7 +60,7 @@ function scheduleLock() {
     clearTimeout(lockTimer);
   }
   lockTimer = setTimeout(() => {
-    lockVault("Automatische Sperre nach Inaktivität.");
+    lockVault("Locked automatically after inactivity.");
   }, AUTO_LOCK_MS) as unknown as number;
 }
 
@@ -126,8 +126,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await updateSecurityState(deriveSuccess());
         sendResponse({ success: true });
       })().catch((error) => {
-        console.error("Vaultlight: Speicherung fehlgeschlagen", error);
-        sendResponse({ success: false, error: "Speicherung fehlgeschlagen." });
+        console.error("Vaultlight: failed to store encrypted vault", error);
+        sendResponse({ success: false, error: "Failed to store encrypted vault." });
       });
       return true;
     }
@@ -142,8 +142,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           security: securityState,
         });
       })().catch((error) => {
-        console.error("Vaultlight: Status Fehler", error);
-        sendResponse({ success: false, error: "Status konnte nicht ermittelt werden." });
+        console.error("Vaultlight: status error", error);
+        sendResponse({ success: false, error: "Could not determine status." });
       });
       return true;
     }
@@ -151,14 +151,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       (async () => {
         await ensureEncryptedVaultLoaded();
         if (!encryptedVault) {
-          sendResponse({ success: false, error: "Kein Tresor synchronisiert." });
+          sendResponse({ success: false, error: "No vault synced." });
           return;
         }
         const now = Date.now();
         if (securityState.requiresReset) {
           sendResponse({
             success: false,
-            error: "Sicherheitsmodus aktiv. Synchronisiere oder setze den Tresor zurück.",
+            error: "Security shield active. Sync or reset the vault.",
             security: securityState,
           });
           return;
@@ -166,7 +166,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (securityState.lockUntil > now) {
           sendResponse({
             success: false,
-            error: `Tresor vorübergehend gesperrt (${formatLockCountdown(securityState.lockUntil)}).`,
+            error: `Vault temporarily locked (${formatLockCountdown(securityState.lockUntil)}).`,
             security: securityState,
           });
           return;
@@ -185,7 +185,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             security: securityState,
           });
         } catch (error) {
-          console.error("Vaultlight: Entsperren fehlgeschlagen", error);
+          console.error("Vaultlight: unlock failed", error);
           decryptedVault = null;
           const updated = deriveFailure(securityState, Date.now());
           await updateSecurityState(updated);
@@ -195,23 +195,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await chrome.storage.local.remove([STORAGE_KEY]);
           }
           const errorMessage = updated.requiresReset
-            ? "Sicherheitsmodus aktiv. Tresor wurde gesperrt und lokale Kopie entfernt."
+            ? "Security shield active. Vault locked and local copy removed."
             : updated.lockUntil > Date.now()
-            ? `Master-Passwort ungültig. Tresor gesperrt für ${formatLockCountdown(updated.lockUntil)}.`
-            : "Master-Passwort ungültig.";
+            ? `Master password invalid. Vault locked for ${formatLockCountdown(updated.lockUntil)}.`
+            : "Master password invalid.";
           sendResponse({ success: false, error: errorMessage, security: updated });
         }
       })();
       return true;
     }
     case "vaultlight.lock": {
-      lockVault("Manuell gesperrt.");
+      lockVault("Locked manually.");
       sendResponse({ success: true });
       return false;
     }
     case "vaultlight.getEntries": {
       if (!decryptedVault) {
-        sendResponse({ success: false, error: "Tresor ist gesperrt.", security: securityState });
+        sendResponse({ success: false, error: "Vault is locked.", security: securityState });
         return false;
       }
       sendResponse({ success: true, entries: getEntryPreviews(), security: securityState });
@@ -221,13 +221,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "vaultlight.fillEntry": {
       (async () => {
         if (!decryptedVault) {
-          sendResponse({ success: false, error: "Tresor ist gesperrt.", security: securityState });
+          sendResponse({ success: false, error: "Vault is locked.", security: securityState });
           return;
         }
         const { entryId, tabId } = message as { entryId: string; tabId?: number };
         const entry = decryptedVault.entries.find((item) => item.id === entryId);
         if (!entry) {
-          sendResponse({ success: false, error: "Eintrag nicht gefunden.", security: securityState });
+          sendResponse({ success: false, error: "Entry not found.", security: securityState });
           return;
         }
         try {
@@ -237,7 +237,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               .query({ active: true, currentWindow: true })
               .then((tabs) => tabs[0]?.id));
           if (!targetTabId) {
-            sendResponse({ success: false, error: "Kein aktiver Tab verfügbar." });
+            sendResponse({ success: false, error: "No active tab available." });
             return;
           }
           await chrome.tabs.sendMessage(targetTabId, {
@@ -251,10 +251,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           scheduleLock();
           sendResponse({ success: true, security: securityState });
         } catch (error) {
-          console.error("Vaultlight: Autofill fehlgeschlagen", error);
+          console.error("Vaultlight: autofill failed", error);
           sendResponse({
             success: false,
-            error: "Autofill nicht möglich (Tab geschützt?).",
+            error: "Autofill not possible (tab protected?).",
             security: securityState,
           });
         }

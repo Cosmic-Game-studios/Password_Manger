@@ -66,7 +66,11 @@ function classNames(
 
 function formatTimestamp(timestamp?: number): string {
   if (!timestamp) return "—";
-  return new Date(timestamp).toLocaleString("de-DE", {
+  const locale =
+    typeof navigator !== "undefined" && navigator.language
+      ? navigator.language
+      : "en-US";
+  return new Date(timestamp).toLocaleString(locale, {
     dateStyle: "short",
     timeStyle: "short",
   });
@@ -90,13 +94,13 @@ function formatCountdown(ms: number): string {
 function exposureStatusLabel(status: PasswordExposure["status"]): string {
   switch (status) {
     case "safe":
-      return "Keine Leaks gefunden";
+      return "No leaks detected";
     case "warning":
-      return "Warnung";
+      return "Warning";
     case "breached":
-      return "Breach gefunden";
+      return "Breach detected";
     default:
-      return "Prüfung ausstehend";
+      return "Check pending";
   }
 }
 
@@ -104,13 +108,13 @@ function strengthLabel(assessment: StrengthAssessment | null): string {
   if (!assessment) return "—";
   switch (assessment.level) {
     case "very-strong":
-      return "Sehr stark";
+      return "Very strong";
     case "strong":
-      return "Stark";
+      return "Strong";
     case "medium":
-      return "Mittel";
+      return "Medium";
     default:
-      return "Schwach";
+      return "Weak";
   }
 }
 
@@ -225,7 +229,7 @@ export default function HomePage() {
         typeof window !== "undefined" ? loadVaultMeta() : null;
       setMeta(metaSnapshot);
       setStage(exists ? "locked" : "creating");
-      addToast(message ?? "Tresor gesperrt.", "info");
+      addToast(message ?? "Vault locked.", "info");
       refreshSecurityState();
     },
     [addToast, hasExistingVault, refreshSecurityState],
@@ -244,7 +248,7 @@ export default function HomePage() {
 
     const handleVisibility = () => {
       if (document.hidden) {
-        lockVault("Tresor automatisch gesperrt (Tab verlassen).");
+        lockVault("Vault locked automatically (tab hidden).");
       } else {
         registerInteraction();
       }
@@ -269,7 +273,7 @@ export default function HomePage() {
     const interval = window.setInterval(() => {
       const elapsed = Date.now() - lastInteractionRef.current;
       if (elapsed >= AUTO_LOCK_MS) {
-        lockVault("Automatische Sperre nach Inaktivität.");
+        lockVault("Vault locked automatically after inactivity.");
       }
     }, 10_000);
 
@@ -292,10 +296,10 @@ export default function HomePage() {
   const applyVaultUpdate = useCallback(
     async (transform: (current: VaultPayload) => VaultPayload) => {
       if (!vaultRef.current) {
-        throw new Error("Kein Vault geladen.");
+        throw new Error("No vault loaded.");
       }
       if (!masterSecretRef.current) {
-        throw new Error("Master-Passwort nicht verfügbar.");
+        throw new Error("Master password not available.");
       }
       const next = transform(vaultRef.current);
       vaultRef.current = next;
@@ -309,11 +313,11 @@ export default function HomePage() {
 
   const handleUnlock = useCallback(async () => {
     if (!masterInput) {
-      setUnlockError("Bitte Master-Passwort eingeben.");
+      setUnlockError("Please enter the master password.");
       return;
     }
     if (stage === "creating" && masterInput !== masterConfirm) {
-      setUnlockError("Passwörter stimmen nicht überein.");
+      setUnlockError("Passwords do not match.");
       return;
     }
 
@@ -321,14 +325,14 @@ export default function HomePage() {
     const now = Date.now();
     if (currentSecurity.requiresReset) {
       setUnlockError(
-        "Sicherheitsmodus aktiv. Tresor muss zurückgesetzt werden, bevor neue Versuche möglich sind.",
+        "Security shield active. Reset the vault before trying again.",
       );
       setStage(hasExistingVault ? "locked" : "creating");
       return;
     }
     if (currentSecurity.lockUntil > now) {
       setUnlockError(
-        `Zu viele Fehlversuche. Bitte in ${formatCountdown(currentSecurity.lockUntil - now)} erneut versuchen.`,
+        `Too many failed attempts. Try again in ${formatCountdown(currentSecurity.lockUntil - now)}.`,
       );
       return;
     }
@@ -349,7 +353,7 @@ export default function HomePage() {
         setHasExistingVault(true);
       }
       setMeta(loadVaultMeta());
-      addToast("Tresor entsperrt.", "success");
+      addToast("Vault unlocked.", "success");
       const updatedSecurity = recordUnlockSuccess();
       setSecurityState(updatedSecurity);
     } catch (error) {
@@ -358,16 +362,16 @@ export default function HomePage() {
       setSecurityState(updatedSecurity);
       if (updatedSecurity.requiresReset) {
         setUnlockError(
-          "Sicherheitsmodus aktiv – Tresor aus Schutzgründen gesperrt. Bitte Tresor zurücksetzen.",
+          "Security shield active—the vault is locked. Reset the vault to continue.",
         );
       } else if (updatedSecurity.lockUntil > Date.now()) {
         setUnlockError(
-          `Master-Passwort ungültig. Tresor vorübergehend gesperrt (${formatCountdown(
+          `Master password invalid. Vault temporarily locked (${formatCountdown(
             updatedSecurity.lockUntil - Date.now(),
           )}).`,
         );
       } else {
-        setUnlockError("Master-Passwort ungültig oder Tresor beschädigt.");
+        setUnlockError("Master password incorrect or vault corrupted.");
       }
       setStage(hasExistingVault ? "locked" : "creating");
     } finally {
@@ -386,13 +390,13 @@ export default function HomePage() {
 
   const handleResetVault = useCallback(() => {
     const confirmed = window.confirm(
-      "Dadurch werden alle gespeicherten Zugangsdaten dauerhaft gelöscht. Fortfahren?",
+      "This will permanently delete all stored credentials. Continue?",
     );
     if (!confirmed) return;
     resetVault();
     resetSecurityState();
     refreshSecurityState();
-    lockVault("Tresor zurückgesetzt.");
+    lockVault("Vault reset.");
   }, [lockVault, refreshSecurityState]);
 
   const handleGeneratePassword = useCallback(() => {
@@ -453,23 +457,23 @@ export default function HomePage() {
 
   const handleRotateMasterPassword = useCallback(async () => {
     if (!vaultRef.current || !masterSecretRef.current) {
-      setMasterChangeError("Tresor ist nicht entsperrt.");
+      setMasterChangeError("Vault is not unlocked.");
       return;
     }
     if (!masterChange.next) {
-      setMasterChangeError("Bitte ein neues Master-Passwort eingeben.");
+      setMasterChangeError("Please enter a new master password.");
       return;
     }
     if (masterChange.next.length < 12) {
-      setMasterChangeError("Bitte mindestens 12 Zeichen verwenden.");
+      setMasterChangeError("Please use at least 12 characters.");
       return;
     }
     if (masterChange.next !== masterChange.confirm) {
-      setMasterChangeError("Bestätigung stimmt nicht mit dem neuen Passwort überein.");
+      setMasterChangeError("Confirmation does not match the new password.");
       return;
     }
     if (masterChange.next === masterSecretRef.current) {
-      setMasterChangeError("Neues Master-Passwort darf nicht identisch mit dem aktuellen sein.");
+      setMasterChangeError("New master password must differ from the current one.");
       return;
     }
     try {
@@ -478,11 +482,11 @@ export default function HomePage() {
       setMasterChange({ next: "", confirm: "" });
       setMasterChangeError(null);
       setMeta(loadVaultMeta());
-      addToast("Master-Passwort aktualisiert.", "success");
+      addToast("Master password updated.", "success");
       registerInteraction();
     } catch (error) {
       console.error(error);
-      setMasterChangeError("Master-Passwort konnte nicht aktualisiert werden.");
+      setMasterChangeError("Master password could not be updated.");
     }
   }, [
     addToast,
@@ -547,12 +551,12 @@ export default function HomePage() {
       return;
     }
     if (!draft.password) {
-      setDraftError("Bitte ein Passwort hinzufügen oder generieren.");
+      setDraftError("Please add or generate a password.");
       return;
     }
     setDraftError(null);
 
-    const trimmedLabel = draft.label.trim() || "Unbenannt";
+    const trimmedLabel = draft.label.trim() || "Untitled";
     const trimmedUsername = draft.username.trim();
     const normalizedNotes = draft.notes.trim() ? draft.notes.trim() : undefined;
     const now = Date.now();
@@ -579,7 +583,7 @@ export default function HomePage() {
             : existing,
         ),
       }));
-      addToast("Eintrag aktualisiert. Breach-Check läuft…", "info");
+      addToast("Entry updated. Breach check running...", "info");
       const entryId = editingEntryId;
       setEditingEntryId(null);
       setDraft(initialDraft);
@@ -600,7 +604,7 @@ export default function HomePage() {
     }));
 
     setDraft(initialDraft);
-    addToast("Eintrag gespeichert. Breach-Check läuft…", "info");
+    addToast("Entry saved. Breach check running...", "info");
     await queueLeakCheck(entry.id, entry.password);
   }, [
     addToast,
@@ -616,7 +620,7 @@ export default function HomePage() {
   const handleDeleteEntry = useCallback(
     async (id: string) => {
       if (!vaultRef.current || !masterSecretRef.current) return;
-      const ok = window.confirm("Eintrag wirklich löschen?");
+      const ok = window.confirm("Delete this entry?");
       if (!ok) return;
       if (editingEntryId === id) {
         setEditingEntryId(null);
@@ -627,7 +631,7 @@ export default function HomePage() {
         ...current,
         entries: current.entries.filter((entry) => entry.id !== id),
       }));
-      addToast("Eintrag gelöscht.", "info");
+      addToast("Entry deleted.", "info");
     },
     [addToast, applyVaultUpdate, editingEntryId],
   );
@@ -645,7 +649,7 @@ export default function HomePage() {
         addToast(successText, "success");
       } catch (error) {
         console.error(error);
-        addToast("Konnte nicht in die Zwischenablage kopieren.", "error");
+        addToast("Could not copy to the clipboard.", "error");
       }
     },
     [addToast],
@@ -654,7 +658,7 @@ export default function HomePage() {
   const handleRecheckEntry = useCallback(
     async (entry: VaultEntry) => {
       if (!masterSecretRef.current) return;
-      addToast("Starte Leak-Check…", "info");
+      addToast("Starting leak check...", "info");
       await queueLeakCheck(entry.id, entry.password);
     },
     [addToast, queueLeakCheck],
@@ -663,46 +667,45 @@ export default function HomePage() {
   const renderUnlockCard = () => (
     <section className="vault-card">
       <header className="vault-card__header">
-        <h1>Vaultlight Passwort Manager</h1>
+        <h1>Vaultlight Password Manager</h1>
         <p>
-          Lokaler Tresor mit starker Verschlüsselung, Passwort-Generator und
-          automatischen Leak-Checks.
+          Local vault with strong encryption, a password generator, and automated leak
+          monitoring.
         </p>
       </header>
       <div className="vault-form__group">
-        <label htmlFor="master-password">Master-Passwort</label>
+        <label htmlFor="master-password">Master password</label>
         <input
           id="master-password"
           type="password"
           value={masterInput}
           autoFocus
           onChange={(event) => setMasterInput(event.target.value)}
-          placeholder="Master-Passwort"
+          placeholder="Master password"
         />
       </div>
       {stage === "creating" && (
         <div className="vault-form__group">
-          <label htmlFor="master-password-confirm">Master-Passwort wiederholen</label>
+          <label htmlFor="master-password-confirm">Repeat master password</label>
           <input
             id="master-password-confirm"
             type="password"
             value={masterConfirm}
             onChange={(event) => setMasterConfirm(event.target.value)}
-            placeholder="Passwort bestätigen"
+            placeholder="Confirm password"
           />
         </div>
       )}
       {unlockError && <p className="vault-error">{unlockError}</p>}
       {securityState.requiresReset && (
         <p className="vault-error">
-          Sicherheitsmodus aktiv: Zu viele Fehlversuche. Setze den Tresor zurück, um fortzufahren.
+          Security shield active: too many failed attempts. Reset the vault to continue.
         </p>
       )}
       {!securityState.requiresReset && securityState.lockUntil > Date.now() && (
         <p className="vault-warning">
-          Tresor vorübergehend blockiert – verbleibende Zeit: {formatCountdown(
-            securityState.lockUntil - Date.now(),
-          )}.
+          Vault temporarily blocked—time remaining:{" "}
+          {formatCountdown(securityState.lockUntil - Date.now())}.
         </p>
       )}
       <button
@@ -711,7 +714,7 @@ export default function HomePage() {
         onClick={handleUnlock}
         disabled={isUnlocking}
       >
-        {stage === "creating" ? "Tresor anlegen" : "Tresor entsperren"}
+        {stage === "creating" ? "Create vault" : "Unlock vault"}
       </button>
       {hasExistingVault && stage !== "creating" && (
         <button
@@ -719,13 +722,13 @@ export default function HomePage() {
           className="vault-button subtle"
           onClick={handleResetVault}
         >
-          Tresor löschen
+          Delete vault
         </button>
       )}
       {meta && hasExistingVault && (
         <div className="vault-meta">
-          <span>Zuletzt entsperrt: {formatTimestamp(meta.lastUnlockedAt)}</span>
-          <span>Aktualisiert: {formatTimestamp(meta.updatedAt)}</span>
+          <span>Last unlocked: {formatTimestamp(meta.lastUnlockedAt)}</span>
+          <span>Updated: {formatTimestamp(meta.updatedAt)}</span>
         </div>
       )}
     </section>
@@ -752,30 +755,30 @@ export default function HomePage() {
         <aside className="vault-sidebar">
           <div className="vault-card">
             <header className="vault-card__header">
-              <h2>{editingEntryId ? "Eintrag bearbeiten" : "Neuer Eintrag"}</h2>
+              <h2>{editingEntryId ? "Edit entry" : "New entry"}</h2>
               <p>
                 {editingEntryId
-                  ? "Aktualisiere Zugangsdaten; Änderungen werden sofort verschlüsselt gespeichert."
-                  : "Speichere Zugangsdaten lokal verschlüsselt."}
+                  ? "Update credentials; all changes are encrypted instantly."
+                  : "Store credentials locally with encryption."}
               </p>
             </header>
             {editingEntryId && (
               <div className="vault-edit-indicator">
-                Bearbeitung aktiv · <strong>{draft.label || "Unbenannt"}</strong>
+                Editing · <strong>{draft.label || "Untitled"}</strong>
               </div>
             )}
             <div className="vault-form__group">
-              <label htmlFor="entry-label">Bezeichnung</label>
+              <label htmlFor="entry-label">Label</label>
               <input
                 id="entry-label"
                 type="text"
                 value={draft.label}
                 onChange={(event) => handleDraftChange("label", event.target.value)}
-                placeholder="z.B. Firmen-Mail"
+                placeholder="e.g. company email"
               />
             </div>
             <div className="vault-form__group">
-              <label htmlFor="entry-username">Benutzername / E-Mail</label>
+              <label htmlFor="entry-username">Username / email</label>
               <input
                 id="entry-username"
                 type="text"
@@ -787,7 +790,7 @@ export default function HomePage() {
               />
             </div>
             <div className="vault-form__group">
-              <label htmlFor="entry-password">Passwort</label>
+              <label htmlFor="entry-password">Password</label>
               <div className="vault-input-with-button">
                 <input
                   id="entry-password"
@@ -796,30 +799,30 @@ export default function HomePage() {
                   onChange={(event) =>
                     handleDraftChange("password", event.target.value)
                   }
-                  placeholder="Generiertes Passwort"
+                  placeholder="Generated password"
                 />
                 <button
                   type="button"
                   className="vault-button secondary"
                   onClick={handleGeneratePassword}
                 >
-                  Generieren
+                  Generate
                 </button>
               </div>
               {strength && (
                 <div className={classNames("vault-strength", strength.level)}>
                   <span>{strengthLabel(strength)}</span>
-                  <span>Geschätzt: {strength.crackTime}</span>
+                  <span>Estimated: {strength.crackTime}</span>
                 </div>
               )}
             </div>
             <div className="vault-form__group">
-              <label htmlFor="entry-notes">Notizen</label>
+              <label htmlFor="entry-notes">Notes</label>
               <textarea
                 id="entry-notes"
                 value={draft.notes}
                 onChange={(event) => handleDraftChange("notes", event.target.value)}
-                placeholder="Sicherheitshinweise, 2FA-Backup usw."
+                placeholder="Security hints, 2FA backups, etc."
                 rows={3}
               />
             </div>
@@ -827,7 +830,7 @@ export default function HomePage() {
               <h3>Generator</h3>
               <div className="vault-generator__grid">
                 <label>
-                  Länge
+                  Length
                   <input
                     type="number"
                     min={8}
@@ -852,7 +855,7 @@ export default function HomePage() {
                       )
                     }
                   />
-                  Großbuchstaben
+                  Uppercase letters
                 </label>
                 <label>
                   <input
@@ -865,7 +868,7 @@ export default function HomePage() {
                       )
                     }
                   />
-                  Kleinbuchstaben
+                  Lowercase letters
                 </label>
                 <label>
                   <input
@@ -875,7 +878,7 @@ export default function HomePage() {
                       handlePasswordOptionChange("useDigits", event.target.checked)
                     }
                   />
-                  Ziffern
+                  Digits
                 </label>
                 <label>
                   <input
@@ -888,7 +891,7 @@ export default function HomePage() {
                       )
                     }
                   />
-                  Sonderzeichen
+                  Symbols
                 </label>
                 <label>
                   <input
@@ -901,7 +904,7 @@ export default function HomePage() {
                       )
                     }
                   />
-                  Ähnliche Zeichen vermeiden
+                  Avoid ambiguous characters
                 </label>
               </div>
             </div>
@@ -913,7 +916,7 @@ export default function HomePage() {
                   className="vault-button ghost"
                   onClick={handleCancelEdit}
                 >
-                  Abbrechen
+                  Cancel
                 </button>
               )}
               <button
@@ -921,16 +924,16 @@ export default function HomePage() {
                 className="vault-button primary"
                 onClick={handleSaveEntry}
               >
-                {editingEntryId ? "Änderungen speichern" : "Zugang speichern"}
+                {editingEntryId ? "Save changes" : "Save entry"}
               </button>
             </div>
           </div>
           <div className="vault-card vault-summary">
-            <h3>Überblick</h3>
+            <h3>Overview</h3>
             <div className="vault-summary__stats">
               <div>
                 <span className="vault-summary__value">{vault.entries.length}</span>
-                <span className="vault-summary__label">Gespeicherte Einträge</span>
+                <span className="vault-summary__label">Stored entries</span>
               </div>
               <div>
                 <span className="vault-summary__value">
@@ -938,30 +941,30 @@ export default function HomePage() {
                     (entry) => entry.exposure?.status === "breached",
                   ).length}
                 </span>
-                <span className="vault-summary__label">Breach Warnungen</span>
+                <span className="vault-summary__label">Breach warnings</span>
               </div>
             </div>
             <div className="vault-meta">
-              <span>Zuletzt entsperrt: {formatTimestamp(meta?.lastUnlockedAt)}</span>
-              <span>Aktualisiert: {formatTimestamp(meta?.updatedAt)}</span>
+              <span>Last unlocked: {formatTimestamp(meta?.lastUnlockedAt)}</span>
+              <span>Updated: {formatTimestamp(meta?.updatedAt)}</span>
             </div>
           </div>
           <div className="vault-card vault-security">
-            <h3>Master-Passwort</h3>
-            <p>Wähle regelmäßig ein neues Master-Passwort für maximale Sicherheit.</p>
+            <h3>Master password</h3>
+            <p>Rotate your master password regularly for maximum security.</p>
             <div className="vault-form__group">
-              <label htmlFor="master-new">Neues Master-Passwort</label>
+              <label htmlFor="master-new">New master password</label>
               <input
                 id="master-new"
                 type="password"
                 autoComplete="new-password"
                 value={masterChange.next}
                 onChange={(event) => handleMasterChangeInput("next", event.target.value)}
-                placeholder="Mindestens 12 Zeichen"
+                placeholder="At least 12 characters"
               />
             </div>
             <div className="vault-form__group">
-              <label htmlFor="master-confirm">Bestätigung</label>
+              <label htmlFor="master-confirm">Confirmation</label>
               <input
                 id="master-confirm"
                 type="password"
@@ -970,7 +973,7 @@ export default function HomePage() {
                 onChange={(event) =>
                   handleMasterChangeInput("confirm", event.target.value)
                 }
-                placeholder="Neues Master-Passwort wiederholen"
+                placeholder="Repeat new master password"
               />
             </div>
             {masterChangeError && <p className="vault-error">{masterChangeError}</p>}
@@ -981,36 +984,33 @@ export default function HomePage() {
                 onClick={handleRotateMasterPassword}
                 disabled={!masterChange.next || !masterChange.confirm}
               >
-                Master-Passwort aktualisieren
+                Update master password
               </button>
             </div>
             <p className="vault-security__hint">
-              Auto-Lock aktiv: Nach {AUTO_LOCK_MINUTES} Minuten Inaktivität wird der Tresor
-              automatisch gesperrt.
+              Auto-lock enabled: after {AUTO_LOCK_MINUTES} minutes of inactivity the vault locks
+              automatically.
             </p>
           </div>
         </aside>
         <section className="vault-content">
           <header className="vault-content__header">
             <div>
-              <h1>Meine Zugangsdaten</h1>
-              <p>Alle Daten sind nur lokal verschlüsselt gespeichert.</p>
+              <h1>My credentials</h1>
+              <p>All data is stored locally in encrypted form only.</p>
             </div>
             <button
               type="button"
               className="vault-button subtle"
               onClick={() => lockVault()}
             >
-              Sperren
+              Lock
             </button>
           </header>
           {sortedEntries.length === 0 ? (
             <div className="vault-empty">
-              <h2>Noch keine Einträge</h2>
-              <p>
-                Lege deinen ersten Eintrag an. Jeder Eintrag wird direkt gegen mehrere
-                Leak-Datenbanken geprüft.
-              </p>
+              <h2>No entries yet</h2>
+              <p>Create your first entry. Every credential is checked against multiple leak databases immediately.</p>
             </div>
           ) : (
             <div className="vault-entries">
@@ -1029,7 +1029,7 @@ export default function HomePage() {
                       <div>
                         <h3>{entry.label}</h3>
                         <span className="vault-entry__timestamp">
-                          Aktualisiert: {formatTimestamp(entry.updatedAt)}
+                          Updated: {formatTimestamp(entry.updatedAt)}
                         </span>
                       </div>
                       <span
@@ -1043,7 +1043,7 @@ export default function HomePage() {
                     </header>
                     <div className="vault-entry__body">
                       <div className="vault-entry__row">
-                        <span className="label">Benutzername</span>
+                        <span className="label">Username</span>
                         <div className="value">
                           <span>{entry.username || "—"}</span>
                           {entry.username && (
@@ -1051,16 +1051,16 @@ export default function HomePage() {
                               type="button"
                               className="vault-button ghost"
                               onClick={() =>
-                                handleCopyToClipboard(entry.username, "Benutzername kopiert.")
+                                handleCopyToClipboard(entry.username, "Username copied.")
                               }
                             >
-                              Kopieren
+                              Copy
                             </button>
                           )}
                         </div>
                       </div>
                       <div className="vault-entry__row">
-                        <span className="label">Passwort</span>
+                        <span className="label">Password</span>
                         <div className="value">
                           <span className="vault-entry__password">
                             {revealed ? entry.password : "•••••••••"}
@@ -1071,44 +1071,44 @@ export default function HomePage() {
                               className="vault-button ghost"
                               onClick={() => handleToggleReveal(entry.id)}
                             >
-                              {revealed ? "Verbergen" : "Anzeigen"}
+                              {revealed ? "Hide" : "Reveal"}
                             </button>
                             <button
                               type="button"
                               className="vault-button ghost"
                               onClick={() =>
-                                handleCopyToClipboard(entry.password, "Passwort kopiert.")
+                                handleCopyToClipboard(entry.password, "Password copied.")
                               }
                             >
-                              Kopieren
+                              Copy
                             </button>
                           </div>
                         </div>
                       </div>
                       {entry.notes && (
                         <div className="vault-entry__row">
-                          <span className="label">Notizen</span>
+                          <span className="label">Notes</span>
                           <div className="value notes">{entry.notes}</div>
                         </div>
                       )}
                     </div>
                     <footer className="vault-entry__footer">
                       <div className="vault-exposure">
-                        <span>Zuletzt geprüft: {formatTimestamp(exposure?.lastChecked)}</span>
+                        <span>Last checked: {formatTimestamp(exposure?.lastChecked)}</span>
                         <div className="vault-exposure__sources">
                           {exposure?.sources?.length ? (
                             exposure.sources.map((source) => (
                               <span key={source.provider} className="source-chip">
-                                {source.provider} · {source.matches} Treffer
+                                {source.provider} · {source.matches} matches
                               </span>
                             ))
                           ) : (
-                            <span className="source-chip muted">Keine Treffer protokolliert.</span>
+                            <span className="source-chip muted">No matches recorded.</span>
                           )}
                         </div>
                         {exposure?.errors?.length ? (
                           <details className="vault-exposure__errors">
-                            <summary>Fehlerdetails</summary>
+                            <summary>Error details</summary>
                             <ul>
                               {exposure.errors.map((error, index) => (
                                 <li key={index}>{error}</li>
@@ -1124,7 +1124,7 @@ export default function HomePage() {
                           disabled={editingEntryId === entry.id}
                           onClick={() => handleEditEntry(entry)}
                         >
-                          {editingEntryId === entry.id ? "In Bearbeitung" : "Bearbeiten"}
+                          {editingEntryId === entry.id ? "In progress" : "Edit"}
                         </button>
                         <button
                           type="button"
@@ -1132,14 +1132,14 @@ export default function HomePage() {
                           disabled={isChecking(entry.id)}
                           onClick={() => handleRecheckEntry(entry)}
                         >
-                          {isChecking(entry.id) ? "Prüfe…" : "Leak-Check"}
+                          {isChecking(entry.id) ? "Checking..." : "Leak-Check"}
                         </button>
                         <button
                           type="button"
                           className="vault-button danger"
                           onClick={() => handleDeleteEntry(entry.id)}
                         >
-                          Löschen
+                          Delete
                         </button>
                       </div>
                     </footer>

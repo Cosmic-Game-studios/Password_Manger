@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Vaultlight Autofill",
   "version": "0.1.0",
-  "description": "Sichere Autofill-Unterstützung für Vaultlight mit Master-Passwortschutz und Tresor-Synchronisierung.",
+  "description": "Secure autofill support for Vaultlight with master password protection and vault sync.",
   "action": {
     "default_title": "Vaultlight Autofill",
     "default_popup": "popup.html"

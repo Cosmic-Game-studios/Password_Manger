@@ -13,7 +13,7 @@ function ensureCrypto(): Crypto {
   if (typeof globalThis !== "undefined" && globalThis.crypto?.subtle) {
     return globalThis.crypto as Crypto;
   }
-  throw new Error("Web Crypto API nicht verfügbar.");
+  throw new Error("Web Crypto API is not available.");
 }
 
 async function digestHex(text: string, algorithm: "SHA-1" | "SHA-256"): Promise<string> {
@@ -40,7 +40,7 @@ async function checkHaveIBeenPwned(password: string): Promise<ExposureSource | n
   });
 
   if (!response.ok) {
-    throw new Error(`HIBP Anfrage fehlgeschlagen (${response.status})`);
+    throw new Error(`HIBP request failed (${response.status})`);
   }
 
   const text = await response.text();
@@ -56,7 +56,7 @@ async function checkHaveIBeenPwned(password: string): Promise<ExposureSource | n
   const count = parseInt(matchLine.split(":")[1] ?? "0", 10);
   return {
     provider: "HaveIBeenPwned",
-    description: "Gefunden in der Pwned Passwords Datenbank",
+    description: "Detected in the Pwned Passwords dataset",
     matches: Number.isNaN(count) ? 0 : count,
     severity: count > 1000 ? "high" : "medium",
   };
@@ -96,7 +96,7 @@ async function requestBackendExposure(password: string): Promise<PasswordExposur
   });
 
   if (!response.ok) {
-    throw new Error(`Leak-Backend antwortete mit ${response.status}`);
+    throw new Error(`Leak backend responded with ${response.status}`);
   }
 
   const data = (await response.json()) as {
@@ -106,7 +106,7 @@ async function requestBackendExposure(password: string): Promise<PasswordExposur
   };
 
   if (!data.success || !data.exposure) {
-    throw new Error(data.error ?? "Leak-Backend lieferte keine gültige Antwort.");
+    throw new Error(data.error ?? "Leak backend returned an invalid response.");
   }
 
   return data.exposure;
@@ -153,7 +153,7 @@ export async function checkPasswordAgainstLeaks(password: string): Promise<Passw
   try {
     return await requestBackendExposure(password);
   } catch (error) {
-    console.warn("Vaultlight Leak-Backend nicht erreichbar, benutze Fallback.", error);
+    console.warn("Vaultlight leak backend unreachable, using fallback.", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     return fallbackExposure(password, errorMessage);
   }

@@ -18,7 +18,7 @@ function readVaultFromLocalStorage(): SyncResponse | null {
       meta: metaRaw ? JSON.parse(metaRaw) : null,
     };
   } catch (error) {
-    console.error("Vaultlight Extension: konnte Tresor nicht lesen", error);
+    console.error("Vaultlight extension: unable to read vault", error);
     return null;
   }
 }
@@ -33,7 +33,7 @@ function pushVaultToBackground() {
     encrypted: payload.encrypted,
     meta: payload.meta,
   }).catch(() => {
-    // Hintergrund ggf. nicht erreichbar (z. B. wenn deaktiviert)
+    // Background may not be reachable (e.g., extension disabled)
   });
 }
 
@@ -41,7 +41,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "vaultlight.dumpVault") {
     const payload = readVaultFromLocalStorage();
     if (!payload) {
-      sendResponse({ success: false, error: "Kein Tresor gefunden." });
+      sendResponse({ success: false, error: "No vault found." });
       return false;
     }
     sendResponse({ success: true, encrypted: payload.encrypted, meta: payload.meta });
@@ -50,5 +50,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return undefined;
 });
 
-// Beim Laden automatisch synchronisieren, falls der Nutzer den Tresor offen hat.
+// Auto-sync on load when the vault is open in this tab.
 pushVaultToBackground();

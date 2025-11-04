@@ -75,7 +75,11 @@ async function queryActiveTab(): Promise<chrome.tabs.Tab | undefined> {
 
 function formatTimestamp(timestamp?: number): string {
   if (!timestamp) return "—";
-  return new Date(timestamp).toLocaleString("de-DE", {
+  const locale =
+    typeof navigator !== "undefined" && navigator.language
+      ? navigator.language
+      : "en-US";
+  return new Date(timestamp).toLocaleString(locale, {
     dateStyle: "short",
     timeStyle: "short",
   });
@@ -112,13 +116,13 @@ function exposureClass(status?: string): string {
 function exposureLabel(status?: string): string {
   switch (status) {
     case "safe":
-      return "Keine Leaks";
+      return "No leaks";
     case "warning":
-      return "Warnung";
+      return "Warning";
     case "breached":
       return "Breach";
     default:
-      return "Ungeprüft";
+      return "Unchecked";
   }
 }
 
@@ -128,7 +132,7 @@ function renderEntries(entries: EntryPreview[]) {
   if (entries.length === 0) {
     const empty = document.createElement("p");
     empty.className = "hint";
-    empty.textContent = "Keine Einträge vorhanden. Synchronisiere erneut oder erstelle Einträge im Vault.";
+    empty.textContent = "No entries found. Sync again or add new entries in the vault.";
     entriesContainer.appendChild(empty);
     return;
   }
@@ -157,7 +161,7 @@ function renderEntries(entries: EntryPreview[]) {
 
     const meta = document.createElement("div");
     meta.className = "entry-username";
-    meta.textContent = `Aktualisiert: ${formatTimestamp(entry.updatedAt)}`;
+    meta.textContent = `Updated: ${formatTimestamp(entry.updatedAt)}`;
 
     const action = document.createElement("button");
     action.className = "primary";
@@ -190,21 +194,21 @@ function updateSecurityDetails(security?: SecurityState) {
   if (security.requiresReset) {
     securityHint.classList.add("danger");
     securityHint.textContent =
-      "Sicherheitsmodus aktiv – Tresor blockiert. Bitte Tresor neu synchronisieren oder zurücksetzen.";
+      "Security shield active—vault blocked. Resync or reset the vault.";
     return;
   }
 
   if (security.lockUntil > Date.now()) {
     securityHint.classList.add("warning");
-    securityHint.textContent = `Schutz aktiv: Wiederholung in ${formatCountdown(
+    securityHint.textContent = `Protection active: retry in ${formatCountdown(
       security.lockUntil - Date.now(),
-    )} möglich.`;
+    )}.`;
     return;
   }
 
   if (security.shieldLevel > 0 || security.totalFailures > 0) {
     securityHint.classList.add("warning");
-    securityHint.textContent = "Schutz aktiv: Fehlversuche wurden protokolliert.";
+    securityHint.textContent = "Protection active: failed attempts recorded.";
     return;
   }
 
@@ -218,7 +222,7 @@ async function refreshStatus() {
   })) as StatusResponse;
 
   if (!response?.success) {
-    statusText.textContent = response?.error ?? "Status unbekannt.";
+    statusText.textContent = response?.error ?? "Status unknown.";
     showSection(syncSection, true);
     showSection(unlockSection, false);
     showSection(entriesSection, false);
@@ -227,10 +231,10 @@ async function refreshStatus() {
   }
 
   statusText.textContent = response.unlocked
-    ? "Tresor entsperrt. Wähle einen Eintrag zum Ausfüllen."
+    ? "Vault unlocked. Choose an entry to autofill."
     : response.hasEncrypted
-    ? "Tresor synchronisiert. Bitte Master-Passwort eingeben."
-    : "Noch kein Tresor synchronisiert.";
+    ? "Vault synced. Enter the master password."
+    : "No vault synced yet.";
 
   showSection(syncSection, !response.hasEncrypted);
   showSection(unlockSection, response.hasEncrypted && !response.unlocked);
@@ -243,10 +247,10 @@ async function refreshStatus() {
 }
 
 async function handleSync() {
-  setMessage("Synchronisiere…");
+  setMessage("Syncing...");
   const tab = await queryActiveTab();
   if (!tab?.id) {
-    setMessage("Kein aktiver Tab gefunden.", "error");
+    setMessage("No active tab found.", "error");
     return;
   }
   try {
@@ -254,7 +258,7 @@ async function handleSync() {
       type: "vaultlight.dumpVault",
     })) as SyncResponse;
     if (!dump?.success || !dump.encrypted) {
-      setMessage(dump?.error ?? "Kein Tresor gefunden. Tresor im aktiven Tab öffnen.", "error");
+      setMessage(dump?.error ?? "No vault found. Open the vault in the active tab.", "error");
       return;
     }
     await chrome.runtime.sendMessage({
@@ -262,11 +266,11 @@ async function handleSync() {
       encrypted: dump.encrypted,
       meta: dump.meta ?? null,
     });
-    setMessage("Synchronisation abgeschlossen.", "success");
+    setMessage("Sync complete.", "success");
     await refreshStatus();
   } catch (error) {
-    console.error("Vaultlight Popup: Sync Fehler", error);
-    setMessage("Synchronisation nicht möglich (Content Script aktiv?).", "error");
+    console.error("Vaultlight popup: sync error", error);
+    setMessage("Sync not possible (content script active?).", "error");
   }
 }
 
@@ -274,27 +278,27 @@ async function handleUnlock(event: SubmitEvent) {
   event.preventDefault();
   const password = unlockPassword.value.trim();
   if (!password) {
-    setMessage("Bitte Master-Passwort eingeben.", "error");
+    setMessage("Please enter the master password.", "error");
     return;
   }
-  setMessage("Entsperre Tresor…");
+  setMessage("Unlocking vault...");
   try {
     const response = (await chrome.runtime.sendMessage({
       type: "vaultlight.unlock",
       masterPassword: password,
     })) as UnlockResponse;
     if (!response?.success) {
-      setMessage(response?.error ?? "Master-Passwort falsch.", "error");
+      setMessage(response?.error ?? "Master password incorrect.", "error");
       updateSecurityDetails(response?.security);
       return;
     }
     unlockPassword.value = "";
-    setMessage(`Tresor entsperrt (${response.entryCount ?? 0} Einträge).`, "success");
+    setMessage(`Vault unlocked (${response.entryCount ?? 0} entries).`, "success");
     updateSecurityDetails(response.security);
     await refreshStatus();
   } catch (error) {
-    console.error("Vaultlight Popup: Unlock Fehler", error);
-    setMessage("Entsperren fehlgeschlagen.", "error");
+    console.error("Vaultlight popup: unlock error", error);
+    setMessage("Unlock failed.", "error");
   }
 }
 
@@ -304,24 +308,24 @@ async function loadEntries() {
       type: "vaultlight.getEntries",
     })) as EntriesResponse;
     if (!response?.success || !response.entries) {
-      setMessage(response?.error ?? "Keine Einträge verfügbar.");
+      setMessage(response?.error ?? "No entries available.");
       renderEntries([]);
       updateSecurityDetails(response?.security);
       return;
     }
     renderEntries(response.entries);
-    setMessage("Bereit.", "success");
+    setMessage("Ready.", "success");
   } catch (error) {
-    console.error("Vaultlight Popup: Laden der Einträge fehlgeschlagen", error);
-    setMessage("Einträge konnten nicht geladen werden.", "error");
+    console.error("Vaultlight popup: failed to load entries", error);
+    setMessage("Entries could not be loaded.", "error");
   }
 }
 
 async function handleFill(entryId: string) {
-  setMessage("Autofill wird vorbereitet…");
+  setMessage("Preparing autofill...");
   const tab = await queryActiveTab();
   if (!tab?.id) {
-    setMessage("Kein aktiver Tab gefunden.", "error");
+    setMessage("No active tab found.", "error");
     return;
   }
   try {
@@ -331,15 +335,15 @@ async function handleFill(entryId: string) {
       tabId: tab.id,
     })) as FillResponse;
     if (!response?.success) {
-      setMessage(response?.error ?? "Autofill fehlgeschlagen.", "error");
+      setMessage(response?.error ?? "Autofill failed.", "error");
       updateSecurityDetails(response?.security);
       return;
     }
-    setMessage("Zugang ausgefüllt.", "success");
+    setMessage("Credential filled.", "success");
     updateSecurityDetails(response?.security);
   } catch (error) {
-    console.error("Vaultlight Popup: Autofill Fehler", error);
-    setMessage("Autofill nicht möglich.", "error");
+    console.error("Vaultlight popup: autofill error", error);
+    setMessage("Autofill not possible.", "error");
   }
 }
 
@@ -347,7 +351,7 @@ async function handleLock() {
   await chrome.runtime.sendMessage({ type: "vaultlight.lock" });
   unlockedEntries = [];
   renderEntries([]);
-  setMessage("Tresor gesperrt.");
+  setMessage("Vault locked.");
   await refreshStatus();
 }
 
@@ -357,7 +361,7 @@ lockButton.addEventListener("click", () => void handleLock());
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "vaultlight.lock-notice") {
-    setMessage(message.reason ?? "Tresor gesperrt.");
+    setMessage(message.reason ?? "Vault locked.");
     void refreshStatus();
     return false;
   }

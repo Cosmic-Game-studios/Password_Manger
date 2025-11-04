@@ -57,7 +57,7 @@ function fillCredentials(payload: AutofillPayload): { success: boolean; details:
   ).filter((input) => isVisible(input));
 
   if (passwordFields.length === 0) {
-    return { success: false, details: "Kein Passwortfeld gefunden." };
+    return { success: false, details: "No password field found." };
   }
 
   const passwordField = passwordFields[0];
@@ -68,7 +68,7 @@ function fillCredentials(payload: AutofillPayload): { success: boolean; details:
     setValue(usernameField, payload.username);
   }
 
-  return { success: true, details: "Formular ausgefüllt." };
+  return { success: true, details: "Form filled." };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

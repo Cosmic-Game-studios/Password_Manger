@@ -49,7 +49,7 @@ async function queryHaveIBeenPwned(prefix: string, suffix: string): Promise<Expo
 
   return {
     provider: "HaveIBeenPwned",
-    description: "Gefunden in der Pwned Passwords Datenbank",
+    description: "Detected in the Pwned Passwords dataset",
     matches: Number.isNaN(count) ? 0 : count,
     severity: count > 1000 ? "high" : "medium",
   };
@@ -109,7 +109,7 @@ export async function POST(request: Request) {
     return NextResponse.json<LeakCheckResponse>(
       {
         success: false,
-        error: "Ungültiger Request Body.",
+        error: "Invalid request body.",
       },
       { status: 400 },
     );
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     return NextResponse.json<LeakCheckResponse>(
       {
         success: false,
-        error: "Es fehlen Hash-Werte für den Leak-Check.",
+        error: "Missing hash values for the leak check.",
       },
       { status: 400 },
     );

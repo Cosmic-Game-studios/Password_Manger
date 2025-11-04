@@ -7,7 +7,7 @@ const DEFAULT_VAULT_VERSION = 1;
 
 function ensureCrypto(): Crypto {
   if (!globalThis.crypto?.subtle) {
-    throw new Error("Web Crypto API nicht verfügbar.");
+    throw new Error("Web Crypto API is not available.");
   }
   return globalThis.crypto;
 }
@@ -86,7 +86,7 @@ export async function decryptVault(
   const payload = JSON.parse(decoded) as VaultPayload;
   if (payload.version !== DEFAULT_VAULT_VERSION) {
     throw new Error(
-      `Nicht unterstützte Tresorversion ${payload.version}. Erwartet ${DEFAULT_VAULT_VERSION}.`,
+      `Unsupported vault version ${payload.version}. Expected ${DEFAULT_VAULT_VERSION}.`,
     );
   }
   return payload;
