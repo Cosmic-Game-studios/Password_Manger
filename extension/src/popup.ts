@@ -236,6 +236,9 @@ async function refreshStatus() {
 
   if (!response?.success) {
     statusText.textContent = response?.error ?? "Status unknown.";
+    statusText.classList.add("error");
+    messageBox.textContent = response?.error ?? "Extension disabled.";
+    messageBox.classList.add("error");
     showSection(syncSection, true);
     showSection(unlockSection, false);
     showSection(entriesSection, false);

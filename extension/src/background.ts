@@ -25,7 +25,7 @@ const META_KEY = "vaultlight.meta";
 const AUTO_LOCK_MS = 5 * 60 * 1000;
 const EXTENSION_DISABLED = true;
 const DISABLED_MESSAGE =
-  "Vaultlight extension is temporarily disabled while we complete upcoming improvements.";
+  `🚧 Vaultlight Autofill is disabled (WIP).`;
 
 let encryptedVault: EncryptedVault | null = null;
 let vaultMeta: VaultMeta | null = null;
@@ -34,6 +34,13 @@ let lockTimer: number | undefined;
 let securityState: SecurityState = { ...DEFAULT_SECURITY_STATE };
 let masterSecret: string | null = null;
 
+const DISABLED_STATUS = {
+  success: false,
+  hasEncrypted: false,
+  unlocked: false,
+  meta: null,
+  error: DISABLED_MESSAGE,
+};
 type PasswordOptions = {
   length: number;
   useUppercase: boolean;
@@ -292,13 +299,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (EXTENSION_DISABLED) {
     if (type === "vaultlight.getStatus") {
-      sendResponse({
-        success: false,
-        hasEncrypted: false,
-        unlocked: false,
-        meta: null,
-        error: DISABLED_MESSAGE,
-      });
+      sendResponse(DISABLED_STATUS);
     } else {
       sendResponse({ success: false, error: DISABLED_MESSAGE });
     }
