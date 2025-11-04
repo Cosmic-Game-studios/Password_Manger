@@ -104,3 +104,30 @@ export function hydrateExposures(entries: VaultEntry[]): VaultEntry[] {
       },
   }));
 }
+
+export async function encryptVault(
+  masterPassword: string,
+  payload: VaultPayload,
+): Promise<EncryptedVault> {
+  const crypto = ensureCrypto();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(masterPassword, salt);
+  const plaintext = encoder.encode(JSON.stringify(payload));
+
+  const cipherBuffer = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+    },
+    key,
+    plaintext,
+  );
+
+  return {
+    version: DEFAULT_VAULT_VERSION,
+    cipherText: toBase64(cipherBuffer),
+    iv: toBase64(iv),
+    salt: toBase64(salt),
+  };
+}

@@ -68,6 +68,8 @@ export function initializeVaultEntry(partial: Partial<VaultEntry>): VaultEntry {
     username: partial.username ?? "",
     password: partial.password ?? "",
     notes: partial.notes,
+    url: partial.url,
+    domain: partial.domain,
     createdAt: partial.createdAt ?? now,
     updatedAt: now,
     exposure: partial.exposure ?? {

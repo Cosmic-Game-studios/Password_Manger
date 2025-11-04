@@ -37,6 +37,12 @@ type SyncResponse = {
   error?: string;
 };
 
+type RegistrationResponse = {
+  success: boolean;
+  error?: string;
+  entryId?: string;
+};
+
 const statusSection = document.getElementById("status-section") as HTMLDivElement;
 const statusText = document.getElementById("status-text") as HTMLParagraphElement;
 const syncSection = document.getElementById("sync-section") as HTMLDivElement;
@@ -47,6 +53,7 @@ const unlockPassword = document.getElementById("unlock-password") as HTMLInputEl
 const entriesSection = document.getElementById("entries-section") as HTMLDivElement;
 const entriesContainer = document.getElementById("entries") as HTMLDivElement;
 const lockButton = document.getElementById("lock-button") as HTMLButtonElement;
+const registrationButton = document.getElementById("registration-button") as HTMLButtonElement | null;
 const messageBox = document.getElementById("message") as HTMLParagraphElement;
 const securityHint = document.getElementById("security-state") as HTMLParagraphElement | null;
 
@@ -160,7 +167,7 @@ function renderEntries(entries: EntryPreview[]) {
     username.textContent = entry.username || "—";
 
     const meta = document.createElement("div");
-    meta.className = "entry-username";
+    meta.className = "entry-meta";
     meta.textContent = `Updated: ${formatTimestamp(entry.updatedAt)}`;
 
     const action = document.createElement("button");
@@ -169,6 +176,12 @@ function renderEntries(entries: EntryPreview[]) {
     action.addEventListener("click", () => void handleFill(entry.id));
 
     card.appendChild(header);
+    if (entry.domain || entry.url) {
+      const domain = document.createElement("div");
+      domain.className = "entry-domain";
+      domain.textContent = entry.domain ?? entry.url ?? "";
+      card.appendChild(domain);
+    }
     card.appendChild(username);
     card.appendChild(meta);
     card.appendChild(action);
@@ -240,6 +253,11 @@ async function refreshStatus() {
   showSection(unlockSection, response.hasEncrypted && !response.unlocked);
   showSection(entriesSection, response.unlocked);
   updateSecurityDetails(response.security);
+
+  if (registrationButton) {
+    registrationButton.classList.toggle("hidden", !response.unlocked);
+    registrationButton.disabled = !response.unlocked;
+  }
 
   if (response.unlocked) {
     await loadEntries();
@@ -321,6 +339,25 @@ async function loadEntries() {
   }
 }
 
+
+async function handleGenerateRegistration() {
+  setMessage("Preparing secure registration...");
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: "vaultlight.generateRegistration",
+    })) as RegistrationResponse;
+    if (!response?.success) {
+      setMessage(response?.error ?? "Registration helper failed.", "error");
+      return;
+    }
+    setMessage("Registration data generated and saved.", "success");
+    await refreshStatus();
+  } catch (error) {
+    console.error("Vaultlight popup: registration error", error);
+    setMessage("Registration helper failed.", "error");
+  }
+}
+
 async function handleFill(entryId: string) {
   setMessage("Preparing autofill...");
   const tab = await queryActiveTab();
@@ -357,6 +394,7 @@ async function handleLock() {
 
 syncButton.addEventListener("click", () => void handleSync());
 unlockForm.addEventListener("submit", (event) => void handleUnlock(event));
+registrationButton?.addEventListener("click", () => void handleGenerateRegistration());
 lockButton.addEventListener("click", () => void handleLock());
 
 chrome.runtime.onMessage.addListener((message) => {

@@ -41,6 +41,10 @@
       .section.hidden {
         display: none;
       }
+
+      .hidden {
+        display: none !important;
+      }
       h1,
       h2,
       h3 {
@@ -158,6 +162,19 @@
         margin: 0;
         font-size: 1rem;
       }
+      .entries-actions {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .entry-domain {
+        font-size: 0.8rem;
+        color: var(--accent);
+      }
+      .entry-meta {
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
       .hint {
         font-size: 0.8rem;
         color: var(--muted);
@@ -200,7 +217,10 @@
       <section class="section hidden" id="entries-section">
         <div class="entries-header">
           <h3>Stored credentials</h3>
-          <button id="lock-button" class="danger">Lock</button>
+          <div class="entries-actions">
+            <button id="registration-button" class="primary hidden">Generate registration</button>
+            <button id="lock-button" class="danger">Lock</button>
+          </div>
         </div>
         <div class="entries" id="entries"></div>
       </section>

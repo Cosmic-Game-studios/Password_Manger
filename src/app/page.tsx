@@ -21,6 +21,7 @@ import {
   type StrengthAssessment,
 } from "../core/password/generator";
 import { checkPasswordAgainstLeaks } from "../core/leaks/leakChecker";
+import { normalizeHost, extractDisplayUrl } from "../core/utils/url";
 import {
   getSecurityState,
   recordUnlockFailure,
@@ -49,6 +50,7 @@ const initialDraft = {
   username: "",
   password: "",
   notes: "",
+  url: "",
 };
 
 type Stage = "checking" | "creating" | "locked" | "unlocking" | "unlocked";
@@ -497,6 +499,7 @@ export default function HomePage() {
         username: entry.username,
         password: entry.password,
         notes: entry.notes ?? "",
+        url: entry.url ?? entry.domain ?? "",
       });
       setDraftError(null);
       registerInteraction();
@@ -626,6 +629,9 @@ export default function HomePage() {
     const trimmedLabel = draft.label.trim() || "Untitled";
     const trimmedUsername = draft.username.trim();
     const normalizedNotes = draft.notes.trim() ? draft.notes.trim() : undefined;
+    const trimmedUrl = draft.url.trim();
+    const normalizedDomain = trimmedUrl ? normalizeHost(trimmedUrl) : undefined;
+    const storedUrl = trimmedUrl || undefined;
     const now = Date.now();
 
     if (editingEntryId) {
@@ -639,6 +645,8 @@ export default function HomePage() {
                 username: trimmedUsername,
                 password: draft.password,
                 notes: normalizedNotes,
+                url: storedUrl,
+                domain: normalizedDomain,
                 updatedAt: now,
                 exposure: {
                   status: "pending",
@@ -667,6 +675,8 @@ export default function HomePage() {
       username: trimmedUsername,
       password: draft.password,
       notes: normalizedNotes,
+      url: storedUrl,
+      domain: normalizedDomain,
     });
 
     await applyVaultUpdate((current) => ({
@@ -688,6 +698,7 @@ export default function HomePage() {
     draft.notes,
     draft.password,
     draft.username,
+    draft.url,
     editingEntryId,
     queueLeakCheck,
     userSettings.leakChecksEnabled,
@@ -872,15 +883,15 @@ export default function HomePage() {
               />
             </div>
             <div className="vault-form__group">
-              <label htmlFor="entry-username">Username / email</label>
+              <label htmlFor="entry-url">Website / domain</label>
               <input
-                id="entry-username"
+                id="entry-url"
                 type="text"
-                value={draft.username}
+                value={draft.url}
                 onChange={(event) =>
-                  handleDraftChange("username", event.target.value)
+                  handleDraftChange("url", event.target.value)
                 }
-                placeholder="mail@example.com"
+                placeholder="example.com"
               />
             </div>
             <div className="vault-form__group">
@@ -1121,6 +1132,11 @@ export default function HomePage() {
                     <header className="vault-entry__header">
                       <div>
                         <h3>{entry.label}</h3>
+                        {entry.domain || entry.url ? (
+                          <span className="vault-entry__url">
+                            {entry.domain ?? extractDisplayUrl(entry.url)}
+                          </span>
+                        ) : null}
                         <span className="vault-entry__timestamp">
                           Updated: {formatTimestamp(entry.updatedAt)}
                         </span>

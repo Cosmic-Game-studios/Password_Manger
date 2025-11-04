@@ -1,13 +1,18 @@
 import {
   decryptVault,
   hydrateExposures,
+  encryptVault,
 } from "./shared/crypto";
 import type {
   EncryptedVault,
   VaultPayload,
   VaultMeta,
   EntryPreview,
+  VaultEntry,
 } from "./shared/types";
+import { normalizeHost } from "../../src/core/utils/url";
+import { generatePassword } from "../../src/core/password/generator";
+import { initializeVaultEntry } from "../../src/core/storage/vaultManager";
 import {
   DEFAULT_SECURITY_STATE,
   deriveFailure,
@@ -27,6 +32,7 @@ let vaultMeta: VaultMeta | null = null;
 let decryptedVault: VaultPayload | null = null;
 let lockTimer: number | undefined;
 let securityState: SecurityState = { ...DEFAULT_SECURITY_STATE };
+let masterSecret: string | null = null;
 
 async function loadFromStorage() {
   const stored = await chrome.storage.local.get([STORAGE_KEY, META_KEY]);
@@ -66,6 +72,7 @@ function scheduleLock() {
 
 function lockVault(reason?: string) {
   decryptedVault = null;
+  masterSecret = null;
   if (lockTimer) {
     clearTimeout(lockTimer);
     lockTimer = undefined;
@@ -103,7 +110,56 @@ function getEntryPreviews(): EntryPreview[] {
       username: entry.username,
       updatedAt: entry.updatedAt,
       exposure: entry.exposure,
+      url: entry.url,
+      domain: resolveEntryDomain(entry) ?? undefined,
     }));
+}
+
+function resolveEntryDomain(entry: VaultEntry): string | null {
+  if (!entry.domain && entry.url) {
+    const derived = normalizeHost(entry.url);
+    if (derived) {
+      entry.domain = derived;
+      return derived;
+    }
+  }
+  return entry.domain ?? null;
+}
+
+async function persistDecryptedVault() {
+  if (!decryptedVault || !masterSecret) {
+    return;
+  }
+  const encrypted = await encryptVault(masterSecret, decryptedVault);
+  encryptedVault = encrypted;
+  const now = Date.now();
+  const nextMeta: VaultMeta = {
+    createdAt: vaultMeta?.createdAt ?? now,
+    updatedAt: now,
+    lastUnlockedAt: vaultMeta?.lastUnlockedAt,
+  };
+  await chrome.storage.local.set({
+    [STORAGE_KEY]: encrypted,
+    [META_KEY]: nextMeta,
+  });
+  vaultMeta = nextMeta;
+}
+
+function getTabHost(tab?: chrome.tabs.Tab): string | null {
+  const url = tab?.url ?? (tab as { pendingUrl?: string } | undefined)?.pendingUrl;
+  if (!url) return null;
+  return normalizeHost(url);
+}
+
+function ensureHostMatches(entry: VaultEntry, host: string | null): boolean {
+  const entryDomain = resolveEntryDomain(entry);
+  if (!entryDomain) {
+    return true;
+  }
+  if (!host) {
+    return false;
+  }
+  return entryDomain === host;
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -118,6 +174,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         };
         encryptedVault = encrypted;
         vaultMeta = meta;
+        masterSecret = null;
         await chrome.storage.local.set({
           [STORAGE_KEY]: encryptedVault,
           [META_KEY]: vaultMeta,
@@ -177,6 +234,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             ...payload,
             entries: hydrateExposures(payload.entries),
           };
+          masterSecret = message.masterPassword;
           scheduleLock();
           await updateSecurityState(deriveSuccess());
           sendResponse({
@@ -187,6 +245,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } catch (error) {
           console.error("Vaultlight: unlock failed", error);
           decryptedVault = null;
+          masterSecret = null;
           const updated = deriveFailure(securityState, Date.now());
           await updateSecurityState(updated);
           if (updated.requiresReset) {
@@ -231,14 +290,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
         try {
-          const targetTabId =
-            tabId ??
-            (await chrome.tabs
-              .query({ active: true, currentWindow: true })
-              .then((tabs) => tabs[0]?.id));
+          const targetTab = tabId
+            ? await chrome.tabs.get(tabId)
+            : (await chrome.tabs.query({ active: true, currentWindow: true })).at(0);
+          const targetTabId = targetTab?.id;
           if (!targetTabId) {
             sendResponse({ success: false, error: "No active tab available." });
             return;
+          }
+          const host = getTabHost(targetTab);
+          if (!ensureHostMatches(entry, host)) {
+            sendResponse({
+              success: false,
+              error: "Domain mismatch. Autofill blocked for safety.",
+              security: securityState,
+            });
+            return;
+          }
+          if (!entry.domain && host) {
+            entry.domain = host;
+            if (decryptedVault) {
+              await persistDecryptedVault();
+            }
           }
           await chrome.tabs.sendMessage(targetTabId, {
             type: "vaultlight.autofill",
@@ -256,6 +329,89 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             success: false,
             error: "Autofill not possible (tab protected?).",
             security: securityState,
+          });
+        }
+      })();
+      return true;
+    }
+    case "vaultlight.generateRegistration": {
+      (async () => {
+        if (!decryptedVault || !masterSecret) {
+          sendResponse({ success: false, error: "Unlock the vault before generating credentials." });
+          return;
+        }
+        try {
+          const targetTab = (await chrome.tabs.query({ active: true, currentWindow: true })).at(0);
+          const targetTabId = targetTab?.id;
+          if (!targetTabId) {
+            sendResponse({ success: false, error: "No active tab available." });
+            return;
+          }
+          const host = getTabHost(targetTab);
+          if (!host) {
+            sendResponse({ success: false, error: "Unable to determine site domain." });
+            return;
+          }
+          const password = generatePassword({
+            length: 20,
+            useUppercase: true,
+            useLowercase: true,
+            useDigits: true,
+            useSymbols: true,
+            avoidAmbiguous: true,
+          });
+          const randomBuffer = new Uint32Array(2);
+          globalThis.crypto?.getRandomValues(randomBuffer);
+          const suffix = Array.from(randomBuffer, (value) => value.toString(36)).join("").slice(0, 10) || Date.now().toString(36);
+          const sanitizedHost = host.replace(/[^a-z0-9]/gi, "");
+          const username = `vault_${sanitizedHost.slice(0, 10)}_${suffix}`;
+          const email = `${username}@vaultlight.app`;
+
+          const result = (await chrome.tabs.sendMessage(targetTabId, {
+            type: "vaultlight.registrationFill",
+            payload: {
+              username,
+              email,
+              password,
+              domain: host,
+            },
+          })) as { success: boolean; data?: { username?: string; email?: string; password: string } } | undefined;
+
+          if (!result?.success || !result.data) {
+            sendResponse({
+              success: false,
+              error: "Could not prepare registration form.",
+            });
+            return;
+          }
+
+          const finalUsername = result.data.username ?? result.data.email ?? username;
+          const finalPassword = result.data.password;
+          const finalEmail = result.data.email ?? email;
+          const entryLabel = `${host} account`;
+
+          const entry = initializeVaultEntry({
+            label: entryLabel,
+            username: finalUsername,
+            password: finalPassword,
+            notes: `Email: ${finalEmail}`,
+            url: targetTab.url ?? host,
+            domain: host,
+          });
+
+          decryptedVault = {
+            ...decryptedVault,
+            entries: [entry, ...decryptedVault.entries],
+          };
+
+          await persistDecryptedVault();
+          scheduleLock();
+          sendResponse({ success: true, entryId: entry.id });
+        } catch (error) {
+          console.error("Vaultlight: registration generation failed", error);
+          sendResponse({
+            success: false,
+            error: "Registration helper failed.",
           });
         }
       })();

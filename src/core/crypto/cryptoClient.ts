@@ -10,6 +10,8 @@ export interface VaultEntry {
   updatedAt: number;
   notes?: string;
   exposure?: PasswordExposure;
+  url?: string;
+  domain?: string;
 }
 
 export interface PasswordExposure {

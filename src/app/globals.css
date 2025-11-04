@@ -1001,6 +1001,13 @@ button {
   font-size: 1.4rem;
 }
 
+.vault-entry__url {
+  display: block;
+  color: var(--primary);
+  font-size: 0.9rem;
+  margin: 4px 0;
+}
+
 .vault-entry__timestamp {
   color: var(--text-muted);
   font-size: 0.8rem;
