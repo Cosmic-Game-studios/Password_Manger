@@ -30,6 +30,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
+  width: 100%;
 }
 
 a {
@@ -196,6 +197,79 @@ button {
 .vault-button.ghost:hover:not(:disabled) {
   box-shadow: none;
   background: rgba(148, 163, 184, 0.14);
+}
+
+.app-shell {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.app-header {
+  width: 100%;
+  max-width: 1180px;
+  margin-top: 32px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 16px 40px rgba(7, 11, 24, 0.38);
+  backdrop-filter: blur(12px);
+  min-height: 64px;
+}
+
+.app-header__brand {
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.app-header__nav {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.app-header__link {
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--text-muted);
+  font-weight: 600;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.app-header__link:hover,
+.app-header__link[aria-current="page"] {
+  background: rgba(56, 189, 248, 0.18);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 720px) {
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 20px;
+  }
+
+  .app-header__nav {
+    width: 100%;
+    gap: 12px;
+  }
+
+  .app-header__link {
+    flex: 1;
+    text-align: center;
+  }
 }
 
 .launcher {
@@ -487,7 +561,7 @@ button {
 
 .settings {
   width: 100%;
-  max-width: 1040px;
+  max-width: 1120px;
   margin: 72px auto 120px;
   padding: 0 24px 80px;
   display: flex;
@@ -496,9 +570,9 @@ button {
 }
 
 .settings__hero {
-  background: linear-gradient(165deg, rgba(15, 23, 42, 0.92), rgba(11, 17, 32, 0.78));
-  border-radius: 28px;
-  padding: 44px;
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.95), rgba(11, 17, 32, 0.76));
+  border-radius: 26px;
+  padding: 44px 48px;
   border: 1px solid rgba(148, 163, 184, 0.14);
   box-shadow: 0 24px 60px rgba(6, 11, 26, 0.42);
   display: flex;
@@ -531,6 +605,12 @@ button {
   font-size: 1.05rem;
   line-height: 1.7;
   max-width: 720px;
+}
+
+.settings__status {
+  margin: 0;
+  color: rgba(148, 163, 184, 0.9);
+  font-size: 0.9rem;
 }
 
 .settings__links {
@@ -572,20 +652,20 @@ button {
   box-shadow: 0 20px 36px rgba(6, 11, 26, 0.4);
 }
 
-.settings__roadmap {
+.settings__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 28px;
 }
 
 .settings__card {
   background: rgba(15, 23, 42, 0.78);
   border-radius: 22px;
-  padding: 28px;
+  padding: 32px;
   border: 1px solid rgba(148, 163, 184, 0.12);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   transition: transform 0.2s ease, border 0.2s ease;
 }
 
@@ -610,7 +690,7 @@ button {
 
 .settings__card h2 {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: 1.35rem;
 }
 
 .settings__card p {
@@ -619,13 +699,65 @@ button {
   line-height: 1.65;
 }
 
-.settings__card ul {
-  margin: 0;
-  padding-left: 18px;
+.settings__group {
+  display: grid;
+  gap: 14px;
+}
+
+.settings__control {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+
+.settings__control label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.settings__range {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.settings__range-value {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.settings__checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(11, 17, 32, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.settings__checkbox input {
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+}
+
+.settings__checkbox > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings__checkbox strong {
+  color: var(--text);
+  font-size: 0.96rem;
+}
+
+.settings__checkbox span {
   color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 .settings__note {
@@ -674,6 +806,10 @@ button {
 
   .settings__note {
     padding: 32px 24px;
+  }
+
+  .settings__grid {
+    grid-template-columns: 1fr;
   }
 }
 

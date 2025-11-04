@@ -28,14 +28,20 @@ import {
   resetSecurityState,
   type SecurityState,
 } from "../core/security/securityShield";
+import {
+  DEFAULT_SETTINGS,
+  SETTINGS_STORAGE_KEY,
+  loadSettings,
+  type UserSettings,
+} from "../core/settings/userSettings";
 
 const defaultPasswordOptions: PasswordOptions = {
-  length: 20,
-  useUppercase: true,
-  useLowercase: true,
-  useDigits: true,
-  useSymbols: true,
-  avoidAmbiguous: true,
+  length: DEFAULT_SETTINGS.generatorLength,
+  useUppercase: DEFAULT_SETTINGS.generatorUppercase,
+  useLowercase: DEFAULT_SETTINGS.generatorLowercase,
+  useDigits: DEFAULT_SETTINGS.generatorDigits,
+  useSymbols: DEFAULT_SETTINGS.generatorSymbols,
+  avoidAmbiguous: DEFAULT_SETTINGS.generatorAvoidAmbiguous,
 };
 
 const initialDraft = {
@@ -44,9 +50,6 @@ const initialDraft = {
   password: "",
   notes: "",
 };
-
-const AUTO_LOCK_MINUTES = 5;
-const AUTO_LOCK_MS = AUTO_LOCK_MINUTES * 60 * 1000;
 
 type Stage = "checking" | "creating" | "locked" | "unlocking" | "unlocked";
 
@@ -119,6 +122,8 @@ function strengthLabel(assessment: StrengthAssessment | null): string {
 }
 
 export default function HomePage() {
+  const [userSettings, setUserSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [stage, setStage] = useState<Stage>("checking");
   const [hasExistingVault, setHasExistingVault] = useState(false);
   const [meta, setMeta] = useState<VaultMeta | null>(null);
@@ -144,13 +149,62 @@ export default function HomePage() {
   const vaultRef = useRef<VaultPayload | null>(null);
   const toastId = useRef(0);
   const lastInteractionRef = useRef(Date.now());
+  const generatorCustomizedRef = useRef(false);
+  const clipboardClearTimeout = useRef<number | null>(null);
+
+  const autoLockMinutes = userSettings.autoLockMinutes;
+  const autoLockMs = autoLockMinutes * 60 * 1000;
 
   useEffect(() => {
     return () => {
       masterSecretRef.current = "";
       vaultRef.current = null;
+      if (clipboardClearTimeout.current) {
+        window.clearTimeout(clipboardClearTimeout.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const stored = loadSettings();
+    setUserSettings(stored);
+    setSettingsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === SETTINGS_STORAGE_KEY) {
+        const next = loadSettings();
+        setUserSettings(next);
+        generatorCustomizedRef.current = false;
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded) {
+      return;
+    }
+    if (generatorCustomizedRef.current) {
+      return;
+    }
+    setPasswordOptions({
+      length: userSettings.generatorLength,
+      useUppercase: userSettings.generatorUppercase,
+      useLowercase: userSettings.generatorLowercase,
+      useDigits: userSettings.generatorDigits,
+      useSymbols: userSettings.generatorSymbols,
+      avoidAmbiguous: userSettings.generatorAvoidAmbiguous,
+    });
+  }, [settingsLoaded, userSettings]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -175,8 +229,17 @@ export default function HomePage() {
       setDraftError(null);
       setMasterChange({ next: "", confirm: "" });
       setMasterChangeError(null);
+      generatorCustomizedRef.current = false;
+      setPasswordOptions({
+        length: userSettings.generatorLength,
+        useUppercase: userSettings.generatorUppercase,
+        useLowercase: userSettings.generatorLowercase,
+        useDigits: userSettings.generatorDigits,
+        useSymbols: userSettings.generatorSymbols,
+        avoidAmbiguous: userSettings.generatorAvoidAmbiguous,
+      });
     }
-  }, [stage]);
+  }, [stage, userSettings]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -272,7 +335,7 @@ export default function HomePage() {
 
     const interval = window.setInterval(() => {
       const elapsed = Date.now() - lastInteractionRef.current;
-      if (elapsed >= AUTO_LOCK_MS) {
+      if (elapsed >= autoLockMs) {
         lockVault("Vault locked automatically after inactivity.");
       }
     }, 10_000);
@@ -291,7 +354,7 @@ export default function HomePage() {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.clearInterval(interval);
     };
-  }, [lockVault, registerInteraction, stage]);
+  }, [autoLockMs, lockVault, registerInteraction, stage]);
 
   const applyVaultUpdate = useCallback(
     async (transform: (current: VaultPayload) => VaultPayload) => {
@@ -405,7 +468,7 @@ export default function HomePage() {
       setDraft((prev) => ({ ...prev, password: newPassword }));
     } catch (error) {
       addToast(
-        error instanceof Error ? error.message : "Generator-Fehler",
+        error instanceof Error ? error.message : "Generator error",
         "error",
       );
     }
@@ -420,6 +483,7 @@ export default function HomePage() {
 
   const handlePasswordOptionChange = useCallback(
     (key: keyof PasswordOptions, value: boolean | number) => {
+      generatorCustomizedRef.current = true;
       setPasswordOptions((prev) => ({ ...prev, [key]: value }));
     },
     [],
@@ -497,6 +561,9 @@ export default function HomePage() {
 
   const queueLeakCheck = useCallback(
     async (entryId: string, password: string) => {
+      if (!userSettings.leakChecksEnabled) {
+        return;
+      }
       registerInteraction();
       setCheckingEntries((prev) => [...new Set([...prev, entryId])]);
       try {
@@ -513,7 +580,7 @@ export default function HomePage() {
               : existing,
           ),
         }));
-        addToast("Leak-Check abgeschlossen.", "success");
+        addToast("Leak check complete.", "success");
       } catch (error) {
         console.error(error);
         await applyVaultUpdate((current) => ({
@@ -529,7 +596,7 @@ export default function HomePage() {
                       ...(existing.exposure?.errors ?? []),
                       error instanceof Error
                         ? error.message
-                        : "Unbekannter Fehler beim Leak-Check",
+                        : "Unexpected error during leak check.",
                     ],
                     lastChecked: Date.now(),
                   },
@@ -537,17 +604,17 @@ export default function HomePage() {
               : existing,
           ),
         }));
-        addToast("Leak-Check fehlgeschlagen.", "error");
+        addToast("Leak check failed.", "error");
       } finally {
         setCheckingEntries((prev) => prev.filter((id) => id !== entryId));
       }
     },
-    [addToast, applyVaultUpdate, registerInteraction],
+    [addToast, applyVaultUpdate, registerInteraction, userSettings.leakChecksEnabled],
   );
 
   const handleSaveEntry = useCallback(async () => {
     if (!vaultRef.current || !masterSecretRef.current) {
-      setDraftError("Vault ist nicht entsperrt.");
+      setDraftError("Vault is not unlocked.");
       return;
     }
     if (!draft.password) {
@@ -583,11 +650,15 @@ export default function HomePage() {
             : existing,
         ),
       }));
-      addToast("Entry updated. Breach check running...", "info");
       const entryId = editingEntryId;
       setEditingEntryId(null);
       setDraft(initialDraft);
-      await queueLeakCheck(entryId, draft.password);
+      if (userSettings.leakChecksEnabled) {
+        addToast("Entry updated. Breach check running...", "info");
+        await queueLeakCheck(entryId, draft.password);
+      } else {
+        addToast("Entry updated locally.", "success");
+      }
       return;
     }
 
@@ -604,8 +675,12 @@ export default function HomePage() {
     }));
 
     setDraft(initialDraft);
-    addToast("Entry saved. Breach check running...", "info");
-    await queueLeakCheck(entry.id, entry.password);
+    if (userSettings.leakChecksEnabled) {
+      addToast("Entry saved. Breach check running...", "info");
+      await queueLeakCheck(entry.id, entry.password);
+    } else {
+      addToast("Entry saved locally.", "success");
+    }
   }, [
     addToast,
     applyVaultUpdate,
@@ -615,6 +690,7 @@ export default function HomePage() {
     draft.username,
     editingEntryId,
     queueLeakCheck,
+    userSettings.leakChecksEnabled,
   ]);
 
   const handleDeleteEntry = useCallback(
@@ -647,21 +723,39 @@ export default function HomePage() {
       try {
         await navigator.clipboard.writeText(value);
         addToast(successText, "success");
+        if (clipboardClearTimeout.current) {
+          window.clearTimeout(clipboardClearTimeout.current);
+          clipboardClearTimeout.current = null;
+        }
+        if (userSettings.clipboardAutoClear) {
+          clipboardClearTimeout.current = window.setTimeout(() => {
+            navigator.clipboard
+              .writeText("")
+              .catch((error) =>
+                console.warn("Vaultlight: failed to clear clipboard.", error),
+              );
+            clipboardClearTimeout.current = null;
+          }, 30_000) as unknown as number;
+        }
       } catch (error) {
         console.error(error);
         addToast("Could not copy to the clipboard.", "error");
       }
     },
-    [addToast],
+    [addToast, userSettings.clipboardAutoClear],
   );
 
   const handleRecheckEntry = useCallback(
     async (entry: VaultEntry) => {
       if (!masterSecretRef.current) return;
+      if (!userSettings.leakChecksEnabled) {
+        addToast("Leak checks are disabled in settings.", "info");
+        return;
+      }
       addToast("Starting leak check...", "info");
       await queueLeakCheck(entry.id, entry.password);
     },
-    [addToast, queueLeakCheck],
+    [addToast, queueLeakCheck, userSettings.leakChecksEnabled],
   );
 
   const renderUnlockCard = () => (
@@ -988,8 +1082,7 @@ export default function HomePage() {
               </button>
             </div>
             <p className="vault-security__hint">
-              Auto-lock enabled: after {AUTO_LOCK_MINUTES} minutes of inactivity the vault locks
-              automatically.
+              Auto-lock enabled: after {autoLockMinutes} {autoLockMinutes === 1 ? "minute" : "minutes"} of inactivity the vault locks automatically.
             </p>
           </div>
         </aside>
