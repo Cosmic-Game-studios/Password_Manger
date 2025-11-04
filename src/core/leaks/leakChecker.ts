@@ -5,6 +5,7 @@ import type {
 import { DARK_WEB_SAMPLE } from "./darkWebSample";
 
 const textEncoder = new TextEncoder();
+let leakBackendWarningLogged = false;
 
 function ensureCrypto(): Crypto {
   if (typeof window !== "undefined" && window.crypto?.subtle) {
@@ -153,7 +154,10 @@ export async function checkPasswordAgainstLeaks(password: string): Promise<Passw
   try {
     return await requestBackendExposure(password);
   } catch (error) {
-    console.warn("Vaultlight leak backend unreachable, using fallback.", error);
+    if (!leakBackendWarningLogged) {
+      console.warn("Vaultlight leak backend unreachable, using fallback.", error);
+      leakBackendWarningLogged = true;
+    }
     const errorMessage = error instanceof Error ? error.message : String(error);
     return fallbackExposure(password, errorMessage);
   }

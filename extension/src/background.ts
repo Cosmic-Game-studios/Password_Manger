@@ -10,9 +10,6 @@ import type {
   EntryPreview,
   VaultEntry,
 } from "./shared/types";
-import { normalizeHost } from "../../src/core/utils/url";
-import { generatePassword } from "../../src/core/password/generator";
-import { initializeVaultEntry } from "../../src/core/storage/vaultManager";
 import {
   DEFAULT_SECURITY_STATE,
   deriveFailure,
@@ -33,6 +30,129 @@ let decryptedVault: VaultPayload | null = null;
 let lockTimer: number | undefined;
 let securityState: SecurityState = { ...DEFAULT_SECURITY_STATE };
 let masterSecret: string | null = null;
+
+type PasswordOptions = {
+  length: number;
+  useUppercase: boolean;
+  useLowercase: boolean;
+  useDigits: boolean;
+  useSymbols: boolean;
+  avoidAmbiguous: boolean;
+};
+
+const DEFAULT_PASSWORD_OPTIONS: PasswordOptions = {
+  length: 20,
+  useUppercase: true,
+  useLowercase: true,
+  useDigits: true,
+  useSymbols: true,
+  avoidAmbiguous: true,
+};
+
+const LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
+const UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const DIGITS = "0123456789";
+const SYMBOLS = "!@#$%^&*()-_=+[]{};:,.<>/?";
+const AMBIGUOUS = "Il1O0";
+
+function normalizeHost(value?: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = trimmed.includes("://") ? new URL(trimmed) : new URL(`https://${trimmed}`);
+    const host = url.hostname.toLowerCase();
+    return host.startsWith("www.") ? host.slice(4) : host;
+  } catch {
+    const fallback = trimmed.toLowerCase().replace(/^[^a-z0-9]+/i, "");
+    if (!fallback) return null;
+    return fallback.startsWith("www.") ? fallback.slice(4) : fallback;
+  }
+}
+
+function getCrypto(): Crypto {
+  const instance = globalThis.crypto;
+  if (!instance?.getRandomValues) {
+    throw new Error("Secure random generator not available.");
+  }
+  return instance;
+}
+
+function randomUUID(): string {
+  const crypto = getCrypto();
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0"));
+  return `${hex[0]}${hex[1]}${hex[2]}${hex[3]}-${hex[4]}${hex[5]}-${hex[6]}${hex[7]}-${hex[8]}${hex[9]}-${hex[10]}${hex[11]}${hex[12]}${hex[13]}${hex[14]}${hex[15]}`;
+}
+
+function filterAmbiguous(source: string, avoid: boolean): string {
+  if (!avoid) return source;
+  const ambiguous = new Set(AMBIGUOUS.split(""));
+  return source
+    .split("")
+    .filter((char) => !ambiguous.has(char))
+    .join("");
+}
+
+function generateStrongPassword(options: Partial<PasswordOptions> = {}): string {
+  const config: PasswordOptions = { ...DEFAULT_PASSWORD_OPTIONS, ...options };
+  const pools: string[] = [];
+  if (config.useLowercase) pools.push(filterAmbiguous(LOWERCASE, config.avoidAmbiguous));
+  if (config.useUppercase) pools.push(filterAmbiguous(UPPERCASE, config.avoidAmbiguous));
+  if (config.useDigits) pools.push(filterAmbiguous(DIGITS, config.avoidAmbiguous));
+  if (config.useSymbols) pools.push(filterAmbiguous(SYMBOLS, config.avoidAmbiguous));
+  const filtered = pools.filter((pool) => pool.length > 0);
+  if (filtered.length === 0) {
+    throw new Error("At least one character group must be selected.");
+  }
+  const combined = filtered.join("");
+  const crypto = getCrypto();
+  const indices = new Uint32Array(config.length);
+  crypto.getRandomValues(indices);
+  const chars: string[] = [];
+  for (let i = 0; i < config.length; i += 1) {
+    const index = indices[i] % combined.length;
+    chars.push(combined[index]);
+  }
+  filtered.forEach((pool, poolIndex) => {
+    if (poolIndex >= chars.length) return;
+    if (!chars.some((char) => pool.includes(char))) {
+      const randomIndex = indices[poolIndex] % pool.length;
+      const slot = poolIndex % chars.length;
+      chars[slot] = pool[randomIndex];
+    }
+  });
+  return chars.join("");
+}
+
+function createVaultEntry(partial: Partial<VaultEntry>): VaultEntry {
+  const now = Date.now();
+  return {
+    id: partial.id ?? randomUUID(),
+    label: partial.label ?? "New entry",
+    username: partial.username ?? "",
+    password: partial.password ?? "",
+    notes: partial.notes,
+    url: partial.url,
+    domain: partial.domain,
+    createdAt: partial.createdAt ?? now,
+    updatedAt: now,
+    exposure:
+      partial.exposure ??
+      {
+        status: "pending",
+        sources: [],
+        lastChecked: 0,
+        errors: [],
+      },
+  };
+}
 
 async function loadFromStorage() {
   const stored = await chrome.storage.local.get([STORAGE_KEY, META_KEY]);
@@ -352,7 +472,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ success: false, error: "Unable to determine site domain." });
             return;
           }
-          const password = generatePassword({
+          const password = generateStrongPassword({
             length: 20,
             useUppercase: true,
             useLowercase: true,
@@ -390,7 +510,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const finalEmail = result.data.email ?? email;
           const entryLabel = `${host} account`;
 
-          const entry = initializeVaultEntry({
+          const entry = createVaultEntry({
             label: entryLabel,
             username: finalUsername,
             password: finalPassword,
