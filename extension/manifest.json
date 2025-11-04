@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Vaultlight Autofill",
+  "version": "0.1.0",
+  "description": "Sichere Autofill-Unterstützung für Vaultlight mit Master-Passwortschutz und Tresor-Synchronisierung.",
+  "action": {
+    "default_title": "Vaultlight Autofill",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "https://vaultlight.app/*",
+    "https://*.vaultlight.app/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "https://vaultlight.app/*",
+        "https://*.vaultlight.app/*"
+      ],
+      "js": ["syncContent.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["autofillContent.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
