@@ -146,6 +146,14 @@ export default function HomePage() {
   const [checkingEntries, setCheckingEntries] = useState<string[]>([]);
   const [revealedEntries, setRevealedEntries] = useState<string[]>([]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{
+    label?: string;
+    url?: string;
+    password?: string;
+    username?: string;
+  }>({});
+  const [isSavingEntry, setIsSavingEntry] = useState(false);
 
   const masterSecretRef = useRef<string>("");
   const vaultRef = useRef<VaultPayload | null>(null);
@@ -229,6 +237,7 @@ export default function HomePage() {
       setDraft(initialDraft);
       setEditingEntryId(null);
       setDraftError(null);
+      setFieldErrors({});
       setMasterChange({ next: "", confirm: "" });
       setMasterChangeError(null);
       generatorCustomizedRef.current = false;
@@ -252,13 +261,39 @@ export default function HomePage() {
 
   const sortedEntries = useMemo(() => {
     if (!vault) return [];
-    return [...vault.entries].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [vault]);
+    let filtered = [...vault.entries];
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((entry) => {
+        return (
+          entry.label.toLowerCase().includes(query) ||
+          entry.username.toLowerCase().includes(query) ||
+          entry.domain?.toLowerCase().includes(query) ||
+          entry.url?.toLowerCase().includes(query) ||
+          entry.notes?.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    return filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [vault, searchQuery]);
 
   const strength = useMemo(() => {
     if (!draft.password) return null;
     return assessStrength(draft.password);
   }, [draft.password]);
+
+  const masterPasswordStrength = useMemo(() => {
+    if (stage === "creating" && masterInput) {
+      return assessStrength(masterInput);
+    }
+    if (stage === "unlocked" && masterChange.next) {
+      return assessStrength(masterChange.next);
+    }
+    return null;
+  }, [stage, masterInput, masterChange.next]);
 
   const isChecking = useCallback(
     (id: string) => checkingEntries.includes(id),
@@ -272,6 +307,10 @@ export default function HomePage() {
     setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 3600);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
   const refreshSecurityState = useCallback(() => {
@@ -476,11 +515,30 @@ export default function HomePage() {
     }
   }, [addToast, passwordOptions]);
 
+  const validateField = useCallback((key: keyof typeof initialDraft, value: string) => {
+    const errors: typeof fieldErrors = {};
+
+    if (key === "url" && value.trim()) {
+      // Basic URL validation
+      const urlPattern = /^(https?:\/\/)?([\w-]+(\.[\w-]+)+)(:\d+)?(\/.*)?$/i;
+      const domainPattern = /^[\w-]+(\.[\w-]+)+$/i;
+      if (!urlPattern.test(value) && !domainPattern.test(value)) {
+        errors.url = "Please enter a valid domain or URL (e.g., example.com or https://example.com)";
+      }
+    }
+
+    return errors;
+  }, []);
+
   const handleDraftChange = useCallback(
     (key: keyof typeof initialDraft, value: string) => {
       setDraft((prev) => ({ ...prev, [key]: value }));
+
+      // Real-time validation
+      const errors = validateField(key, value);
+      setFieldErrors((prev) => ({ ...prev, ...errors, [key]: errors[key] }));
     },
-    [],
+    [validateField],
   );
 
   const handlePasswordOptionChange = useCallback(
@@ -491,8 +549,35 @@ export default function HomePage() {
     [],
   );
 
+  const hasUnsavedChanges = useCallback(() => {
+    if (!editingEntryId) {
+      // New entry - check if any field has content
+      return draft.label || draft.username || draft.password || draft.notes || draft.url;
+    }
+
+    // Editing existing entry - check if any field changed
+    const currentEntry = vault?.entries.find(e => e.id === editingEntryId);
+    if (!currentEntry) return false;
+
+    return (
+      draft.label !== currentEntry.label ||
+      draft.username !== currentEntry.username ||
+      draft.password !== currentEntry.password ||
+      (draft.notes || "") !== (currentEntry.notes || "") ||
+      (draft.url || "") !== (currentEntry.url || currentEntry.domain || "")
+    );
+  }, [editingEntryId, draft, vault]);
+
   const handleEditEntry = useCallback(
     (entry: VaultEntry) => {
+      // Check for unsaved changes before switching to another entry
+      if (editingEntryId && hasUnsavedChanges()) {
+        const confirmed = window.confirm(
+          "You have unsaved changes. Do you want to discard them and edit this entry instead?"
+        );
+        if (!confirmed) return;
+      }
+
       setEditingEntryId(entry.id);
       setDraft({
         label: entry.label,
@@ -504,14 +589,23 @@ export default function HomePage() {
       setDraftError(null);
       registerInteraction();
     },
-    [registerInteraction],
+    [editingEntryId, hasUnsavedChanges, registerInteraction],
   );
 
   const handleCancelEdit = useCallback(() => {
+    // Warn about unsaved changes
+    if (hasUnsavedChanges()) {
+      const confirmed = window.confirm(
+        "You have unsaved changes. Are you sure you want to discard them?"
+      );
+      if (!confirmed) return;
+    }
+
     setEditingEntryId(null);
     setDraft(initialDraft);
     setDraftError(null);
-  }, []);
+    setFieldErrors({});
+  }, [hasUnsavedChanges]);
 
   const handleMasterChangeInput = useCallback(
     (key: "next" | "confirm", value: string) => {
@@ -625,16 +719,18 @@ export default function HomePage() {
       return;
     }
     setDraftError(null);
+    setIsSavingEntry(true);
 
-    const trimmedLabel = draft.label.trim() || "Untitled";
-    const trimmedUsername = draft.username.trim();
-    const normalizedNotes = draft.notes.trim() ? draft.notes.trim() : undefined;
-    const trimmedUrl = draft.url.trim();
-    const normalizedDomain = trimmedUrl ? normalizeHost(trimmedUrl) : undefined;
-    const storedUrl = trimmedUrl || undefined;
-    const now = Date.now();
+    try {
+      const trimmedLabel = draft.label.trim() || "Untitled";
+      const trimmedUsername = draft.username.trim();
+      const normalizedNotes = draft.notes.trim() ? draft.notes.trim() : undefined;
+      const trimmedUrl = draft.url.trim();
+      const normalizedDomain = trimmedUrl ? normalizeHost(trimmedUrl) : undefined;
+      const storedUrl = trimmedUrl || undefined;
+      const now = Date.now();
 
-    if (editingEntryId) {
+      if (editingEntryId) {
       await applyVaultUpdate((current) => ({
         ...current,
         entries: current.entries.map((existing) =>
@@ -684,12 +780,18 @@ export default function HomePage() {
       entries: [entry, ...current.entries],
     }));
 
-    setDraft(initialDraft);
-    if (userSettings.leakChecksEnabled) {
-      addToast("Entry saved. Breach check running...", "info");
-      await queueLeakCheck(entry.id, entry.password);
-    } else {
-      addToast("Entry saved locally.", "success");
+      setDraft(initialDraft);
+      if (userSettings.leakChecksEnabled) {
+        addToast("Entry saved. Breach check running...", "info");
+        await queueLeakCheck(entry.id, entry.password);
+      } else {
+        addToast("Entry saved locally.", "success");
+      }
+    } catch (error) {
+      console.error("Error saving entry:", error);
+      setDraftError("Failed to save entry. Please try again.");
+    } finally {
+      setIsSavingEntry(false);
     }
   }, [
     addToast,
@@ -786,8 +888,14 @@ export default function HomePage() {
           value={masterInput}
           autoFocus
           onChange={(event) => setMasterInput(event.target.value)}
-          placeholder="Master password"
+          placeholder="Master password (at least 12 characters)"
         />
+        {stage === "creating" && masterPasswordStrength && (
+          <div className={classNames("vault-strength", masterPasswordStrength.level)}>
+            <span>{strengthLabel(masterPasswordStrength)}</span>
+            <span>Estimated crack time: {masterPasswordStrength.crackTime}</span>
+          </div>
+        )}
       </div>
       {stage === "creating" && (
         <div className="vault-form__group">
@@ -841,12 +949,20 @@ export default function HomePage() {
 
   if (stage !== "unlocked" || !vault) {
     return (
-      <main className="vault-app single-column">
+      <main className="vault-app single-column" role="main" aria-label="Vault unlock">
         {renderUnlockCard()}
-        <div className="vault-toasts">
+        <div className="vault-toasts" role="status" aria-live="polite" aria-atomic="true">
           {toasts.map((toast) => (
             <div key={toast.id} className={classNames("toast", toast.kind)}>
-              {toast.text}
+              <span>{toast.text}</span>
+              <button
+                type="button"
+                className="toast-dismiss"
+                onClick={() => dismissToast(toast.id)}
+                aria-label="Dismiss notification"
+              >
+                ×
+              </button>
             </div>
           ))}
         </div>
@@ -855,9 +971,13 @@ export default function HomePage() {
   }
 
   return (
-    <main className="vault-app">
-      <div className="vault-columns">
-        <aside className="vault-sidebar">
+    <>
+      <a href="#vault-content" className="skip-link">
+        Skip to entries
+      </a>
+      <main className="vault-app" role="main" aria-label="Password vault management">
+        <div className="vault-columns">
+        <aside className="vault-sidebar" role="complementary" aria-label="Entry editor and vault controls">
           <div className="vault-card">
             <header className="vault-card__header">
               <h2>{editingEntryId ? "Edit entry" : "New entry"}</h2>
@@ -892,7 +1012,15 @@ export default function HomePage() {
                   handleDraftChange("url", event.target.value)
                 }
                 placeholder="example.com"
+                className={fieldErrors.url ? "error" : ""}
+                aria-invalid={!!fieldErrors.url}
+                aria-describedby={fieldErrors.url ? "entry-url-error" : undefined}
               />
+              {fieldErrors.url && (
+                <p className="vault-field-error" id="entry-url-error">
+                  {fieldErrors.url}
+                </p>
+              )}
             </div>
             <div className="vault-form__group">
               <label htmlFor="entry-password">Password</label>
@@ -910,6 +1038,7 @@ export default function HomePage() {
                   type="button"
                   className="vault-button secondary"
                   onClick={handleGeneratePassword}
+                  aria-label="Generate new password"
                 >
                   Generate
                 </button>
@@ -1020,6 +1149,7 @@ export default function HomePage() {
                   type="button"
                   className="vault-button ghost"
                   onClick={handleCancelEdit}
+                  aria-label="Cancel editing and discard changes"
                 >
                   Cancel
                 </button>
@@ -1028,8 +1158,11 @@ export default function HomePage() {
                 type="button"
                 className="vault-button primary"
                 onClick={handleSaveEntry}
+                disabled={isSavingEntry}
+                aria-label={editingEntryId ? "Save changes to entry" : "Save new entry"}
+                aria-busy={isSavingEntry}
               >
-                {editingEntryId ? "Save changes" : "Save entry"}
+                {isSavingEntry ? "Saving..." : (editingEntryId ? "Save changes" : "Save entry")}
               </button>
             </div>
           </div>
@@ -1067,6 +1200,12 @@ export default function HomePage() {
                 onChange={(event) => handleMasterChangeInput("next", event.target.value)}
                 placeholder="At least 12 characters"
               />
+              {masterPasswordStrength && (
+                <div className={classNames("vault-strength", masterPasswordStrength.level)}>
+                  <span>{strengthLabel(masterPasswordStrength)}</span>
+                  <span>Estimated crack time: {masterPasswordStrength.crackTime}</span>
+                </div>
+              )}
             </div>
             <div className="vault-form__group">
               <label htmlFor="master-confirm">Confirmation</label>
@@ -1097,7 +1236,7 @@ export default function HomePage() {
             </p>
           </div>
         </aside>
-        <section className="vault-content">
+        <section className="vault-content" id="vault-content">
           <header className="vault-content__header">
             <div>
               <h1>My credentials</h1>
@@ -1107,14 +1246,36 @@ export default function HomePage() {
               type="button"
               className="vault-button subtle"
               onClick={() => lockVault()}
+              aria-label="Lock vault"
             >
               Lock
             </button>
           </header>
+          {vault.entries.length > 0 && (
+            <div className="vault-search">
+              <input
+                type="search"
+                className="vault-search__input"
+                placeholder="Search entries by label, username, domain, or notes..."
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                aria-label="Search password entries"
+              />
+              {searchQuery && (
+                <span className="vault-search__results">
+                  {sortedEntries.length} {sortedEntries.length === 1 ? "result" : "results"}
+                </span>
+              )}
+            </div>
+          )}
           {sortedEntries.length === 0 ? (
             <div className="vault-empty">
-              <h2>No entries yet</h2>
-              <p>Create your first entry. Every credential is checked against multiple leak databases immediately.</p>
+              <h2>{searchQuery ? "No matching entries" : "No entries yet"}</h2>
+              <p>
+                {searchQuery
+                  ? "Try a different search term or clear the search to see all entries."
+                  : "Create your first entry. Every credential is checked against multiple leak databases immediately."}
+              </p>
             </div>
           ) : (
             <div className="vault-entries">
@@ -1162,6 +1323,7 @@ export default function HomePage() {
                               onClick={() =>
                                 handleCopyToClipboard(entry.username, "Username copied.")
                               }
+                              aria-label={`Copy username for ${entry.label}`}
                             >
                               Copy
                             </button>
@@ -1179,6 +1341,8 @@ export default function HomePage() {
                               type="button"
                               className="vault-button ghost"
                               onClick={() => handleToggleReveal(entry.id)}
+                              aria-label={revealed ? `Hide password for ${entry.label}` : `Reveal password for ${entry.label}`}
+                              aria-pressed={revealed}
                             >
                               {revealed ? "Hide" : "Reveal"}
                             </button>
@@ -1188,6 +1352,7 @@ export default function HomePage() {
                               onClick={() =>
                                 handleCopyToClipboard(entry.password, "Password copied.")
                               }
+                              aria-label={`Copy password for ${entry.label}`}
                             >
                               Copy
                             </button>
@@ -1232,6 +1397,7 @@ export default function HomePage() {
                           className="vault-button ghost"
                           disabled={editingEntryId === entry.id}
                           onClick={() => handleEditEntry(entry)}
+                          aria-label={`Edit ${entry.label}`}
                         >
                           {editingEntryId === entry.id ? "In progress" : "Edit"}
                         </button>
@@ -1240,6 +1406,8 @@ export default function HomePage() {
                           className="vault-button secondary"
                           disabled={isChecking(entry.id)}
                           onClick={() => handleRecheckEntry(entry)}
+                          aria-label={`Run leak check for ${entry.label}`}
+                          aria-busy={isChecking(entry.id)}
                         >
                           {isChecking(entry.id) ? "Checking..." : "Leak-Check"}
                         </button>
@@ -1247,6 +1415,7 @@ export default function HomePage() {
                           type="button"
                           className="vault-button danger"
                           onClick={() => handleDeleteEntry(entry.id)}
+                          aria-label={`Delete ${entry.label}`}
                         >
                           Delete
                         </button>
@@ -1259,13 +1428,22 @@ export default function HomePage() {
           )}
         </section>
       </div>
-      <div className="vault-toasts">
+      <div className="vault-toasts" role="status" aria-live="polite" aria-atomic="true">
         {toasts.map((toast) => (
           <div key={toast.id} className={classNames("toast", toast.kind)}>
-            {toast.text}
+            <span>{toast.text}</span>
+            <button
+              type="button"
+              className="toast-dismiss"
+              onClick={() => dismissToast(toast.id)}
+              aria-label="Dismiss notification"
+            >
+              ×
+            </button>
           </div>
         ))}
       </div>
     </main>
+    </>
   );
 }
