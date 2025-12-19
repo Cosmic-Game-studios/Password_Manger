@@ -20,6 +20,10 @@ interface LeakCheckResponse {
 }
 
 const HIBP_ENDPOINT = "https://api.pwnedpasswords.com/range/";
+const HEX_REGEX = /^[a-f0-9]+$/i;
+const SHA1_PREFIX_LENGTH = 5;
+const SHA1_SUFFIX_LENGTH = 35;
+const SHA256_LENGTH = 64;
 
 async function queryHaveIBeenPwned(prefix: string, suffix: string): Promise<ExposureSource | null> {
   const response = await fetch(`${HIBP_ENDPOINT}${prefix}`, {
@@ -125,12 +129,34 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const normalizedPrefix = sha1Prefix.trim();
+  const normalizedSuffix = sha1Suffix.trim();
+  const normalizedSha256 = sha256Hash.trim();
+  if (
+    normalizedPrefix.length !== SHA1_PREFIX_LENGTH ||
+    normalizedSuffix.length !== SHA1_SUFFIX_LENGTH ||
+    normalizedSha256.length !== SHA256_LENGTH ||
+    !HEX_REGEX.test(normalizedPrefix) ||
+    !HEX_REGEX.test(normalizedSuffix) ||
+    !HEX_REGEX.test(normalizedSha256)
+  ) {
+    return NextResponse.json<LeakCheckResponse>(
+      {
+        success: false,
+        error: "Invalid hash values for the leak check.",
+      },
+      { status: 400 },
+    );
+  }
 
   const sources: ExposureSource[] = [];
   const errors: string[] = [];
 
   try {
-    const hibpExposure = await queryHaveIBeenPwned(sha1Prefix, sha1Suffix);
+    const hibpExposure = await queryHaveIBeenPwned(
+      normalizedPrefix.toUpperCase(),
+      normalizedSuffix.toUpperCase(),
+    );
     if (hibpExposure) {
       sources.push(hibpExposure);
     }
@@ -139,7 +165,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const localSources = lookupLocalDatasets(sha256Hash);
+    const localSources = lookupLocalDatasets(normalizedSha256.toLowerCase());
     sources.push(...localSources);
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));

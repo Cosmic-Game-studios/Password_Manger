@@ -8,6 +8,7 @@ export interface UserSettings {
   generatorAvoidAmbiguous: boolean;
   clipboardAutoClear: boolean;
   leakChecksEnabled: boolean;
+  paranoidMode: boolean;
 }
 
 export const SETTINGS_STORAGE_KEY = "vaultlight.settings";
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   generatorAvoidAmbiguous: true,
   clipboardAutoClear: true,
   leakChecksEnabled: true,
+  paranoidMode: false,
 };
 
 export function loadSettings(): UserSettings {
