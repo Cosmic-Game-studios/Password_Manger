@@ -134,6 +134,24 @@ export default function SettingsClient() {
             </div>
             <div className="settings__checkbox">
               <input
+                id="paranoid-mode"
+                type="checkbox"
+                checked={settings.paranoidMode}
+                onChange={handleToggle("paranoidMode")}
+                disabled={!loaded}
+              />
+              <div>
+                <label htmlFor="paranoid-mode">
+                  <strong>Paranoid mode</strong>
+                </label>
+                <span>
+                  Lock on window blur, auto-hide revealed passwords after 10 seconds, and clear the
+                  clipboard after 5 seconds.
+                </span>
+              </div>
+            </div>
+            <div className="settings__checkbox">
+              <input
                 id="leak-checks"
                 type="checkbox"
                 checked={settings.leakChecksEnabled}

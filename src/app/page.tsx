@@ -153,9 +153,11 @@ export default function HomePage() {
   const lastInteractionRef = useRef(Date.now());
   const generatorCustomizedRef = useRef(false);
   const clipboardClearTimeout = useRef<number | null>(null);
+  const revealTimeoutsRef = useRef<Map<string, number>>(new Map());
 
   const autoLockMinutes = userSettings.autoLockMinutes;
   const autoLockMs = autoLockMinutes * 60 * 1000;
+  const clipboardClearDelay = userSettings.paranoidMode ? 5_000 : 30_000;
 
   useEffect(() => {
     return () => {
@@ -231,6 +233,11 @@ export default function HomePage() {
       setDraftError(null);
       setMasterChange({ next: "", confirm: "" });
       setMasterChangeError(null);
+      setRevealedEntries([]);
+      revealTimeoutsRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      revealTimeoutsRef.current.clear();
       generatorCustomizedRef.current = false;
       setPasswordOptions({
         length: userSettings.generatorLength,
@@ -287,6 +294,20 @@ export default function HomePage() {
       masterSecretRef.current = "";
       vaultRef.current = null;
       setVault(null);
+      setRevealedEntries([]);
+      revealTimeoutsRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      revealTimeoutsRef.current.clear();
+      if (clipboardClearTimeout.current) {
+        window.clearTimeout(clipboardClearTimeout.current);
+        clipboardClearTimeout.current = null;
+      }
+      if (userSettings.clipboardAutoClear && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText("").catch((error) => {
+          console.warn("Vaultlight: failed to clear clipboard.", error);
+        });
+      }
       const exists =
         typeof window !== "undefined" ? vaultExists() : hasExistingVault;
       setHasExistingVault(exists);
@@ -297,7 +318,13 @@ export default function HomePage() {
       addToast(message ?? "Vault locked.", "info");
       refreshSecurityState();
     },
-    [addToast, hasExistingVault, refreshSecurityState],
+    [
+      addToast,
+      hasExistingVault,
+      refreshSecurityState,
+      userSettings.clipboardAutoClear,
+      userSettings.paranoidMode,
+    ],
   );
 
   useEffect(() => {
@@ -319,6 +346,12 @@ export default function HomePage() {
       }
     };
 
+    const handleBlur = () => {
+      if (userSettings.paranoidMode) {
+        lockVault("Vault locked automatically (window lost focus).");
+      }
+    };
+
     const events: Array<keyof DocumentEventMap> = [
       "mousemove",
       "mousedown",
@@ -334,6 +367,7 @@ export default function HomePage() {
     );
 
     document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("blur", handleBlur);
 
     const interval = window.setInterval(() => {
       const elapsed = Date.now() - lastInteractionRef.current;
@@ -353,10 +387,11 @@ export default function HomePage() {
         document.removeEventListener(event, handleActivity, eventOptions),
       );
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("blur", handleBlur);
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.clearInterval(interval);
     };
-  }, [autoLockMs, lockVault, registerInteraction, stage]);
+  }, [autoLockMs, lockVault, registerInteraction, stage, userSettings.paranoidMode]);
 
   const applyVaultUpdate = useCallback(
     async (transform: (current: VaultPayload) => VaultPayload) => {
@@ -723,11 +758,31 @@ export default function HomePage() {
     [addToast, applyVaultUpdate, editingEntryId],
   );
 
-  const handleToggleReveal = useCallback((id: string) => {
-    setRevealedEntries((prev) =>
-      prev.includes(id) ? prev.filter((entry) => entry !== id) : [...prev, id],
-    );
-  }, []);
+  const handleToggleReveal = useCallback(
+    (id: string) => {
+      setRevealedEntries((prev) => {
+        const isRevealed = prev.includes(id);
+        if (isRevealed) {
+          const timeoutId = revealTimeoutsRef.current.get(id);
+          if (timeoutId) {
+            window.clearTimeout(timeoutId);
+            revealTimeoutsRef.current.delete(id);
+          }
+          return prev.filter((entry) => entry !== id);
+        }
+        const next = [...prev, id];
+        if (userSettings.paranoidMode) {
+          const timeoutId = window.setTimeout(() => {
+            setRevealedEntries((current) => current.filter((entry) => entry !== id));
+            revealTimeoutsRef.current.delete(id);
+          }, 10_000);
+          revealTimeoutsRef.current.set(id, timeoutId);
+        }
+        return next;
+      });
+    },
+    [userSettings.paranoidMode],
+  );
 
   const handleCopyToClipboard = useCallback(
     async (value: string, successText: string) => {
@@ -746,14 +801,14 @@ export default function HomePage() {
                 console.warn("Vaultlight: failed to clear clipboard.", error),
               );
             clipboardClearTimeout.current = null;
-          }, 30_000) as unknown as number;
+          }, clipboardClearDelay) as unknown as number;
         }
       } catch (error) {
         console.error(error);
         addToast("Could not copy to the clipboard.", "error");
       }
     },
-    [addToast, userSettings.clipboardAutoClear],
+    [addToast, clipboardClearDelay, userSettings.clipboardAutoClear],
   );
 
   const handleRecheckEntry = useCallback(
