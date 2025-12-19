@@ -38,9 +38,21 @@ export interface EncryptedVault {
   cipherText: string;
   iv: string;
   salt: string;
+  kdf?: {
+    algorithm: "PBKDF2";
+    hash: "SHA-256";
+    iterations: number;
+  };
 }
 
 const DEFAULT_VAULT_VERSION = 1;
+const ENCRYPTED_VAULT_VERSION = 2;
+const LEGACY_PBKDF2_ITERATIONS = 210_000;
+const STRONG_PBKDF2_ITERATIONS = 600_000;
+const DEFAULT_SALT_BYTES = 32;
+const LEGACY_SALT_BYTES = 16;
+const IV_BYTES = 12;
+const VAULT_AAD = encoder.encode("vaultlight.v2");
 
 function ensureCrypto(): Crypto {
   if (typeof globalThis.crypto === "undefined") {
@@ -77,6 +89,7 @@ function fromBase64(value: string): Uint8Array {
 async function deriveKey(
   masterPassword: string,
   salt: Uint8Array,
+  iterations: number,
 ): Promise<CryptoKey> {
   const crypto = ensureCrypto();
   const keyMaterial = await crypto.subtle.importKey(
@@ -91,7 +104,7 @@ async function deriveKey(
     {
       name: "PBKDF2",
       salt,
-      iterations: 210_000,
+      iterations,
       hash: "SHA-256",
     },
     keyMaterial,
@@ -104,30 +117,44 @@ async function deriveKey(
   );
 }
 
+function requireLength(bytes: Uint8Array, expected: number, label: string) {
+  if (bytes.length !== expected) {
+    throw new Error(
+      `Invalid ${label} length: expected ${expected} bytes, received ${bytes.length}.`,
+    );
+  }
+}
+
 export async function encryptVault(
   masterPassword: string,
   payload: VaultPayload,
 ): Promise<EncryptedVault> {
   const crypto = ensureCrypto();
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveKey(masterPassword, salt);
+  const salt = crypto.getRandomValues(new Uint8Array(DEFAULT_SALT_BYTES));
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const key = await deriveKey(masterPassword, salt, STRONG_PBKDF2_ITERATIONS);
   const plaintext = encoder.encode(JSON.stringify(payload));
 
   const cipherBuffer = await crypto.subtle.encrypt(
     {
       name: "AES-GCM",
       iv,
+      additionalData: VAULT_AAD,
     },
     key,
     plaintext,
   );
 
   return {
-    version: DEFAULT_VAULT_VERSION,
+    version: ENCRYPTED_VAULT_VERSION,
     cipherText: toBase64(cipherBuffer),
     iv: toBase64(iv),
     salt: toBase64(salt),
+    kdf: {
+      algorithm: "PBKDF2",
+      hash: "SHA-256",
+      iterations: STRONG_PBKDF2_ITERATIONS,
+    },
   };
 }
 
@@ -136,15 +163,34 @@ export async function decryptVault(
   encrypted: EncryptedVault,
 ): Promise<VaultPayload> {
   const crypto = ensureCrypto();
+  const encryptedVersion = encrypted.version ?? 1;
+  if (encryptedVersion > ENCRYPTED_VAULT_VERSION) {
+    throw new Error(
+      `Unsupported encrypted vault version ${encryptedVersion}. Expected ${ENCRYPTED_VAULT_VERSION}.`,
+    );
+  }
   const salt = fromBase64(encrypted.salt);
   const iv = fromBase64(encrypted.iv);
-  const key = await deriveKey(masterPassword, salt);
+  const iterations =
+    encrypted.kdf?.iterations ??
+    (encryptedVersion >= 2 ? STRONG_PBKDF2_ITERATIONS : LEGACY_PBKDF2_ITERATIONS);
+  if (encrypted.kdf && encrypted.kdf.algorithm !== "PBKDF2") {
+    throw new Error(`Unsupported KDF ${encrypted.kdf.algorithm}.`);
+  }
+  if (encryptedVersion >= 2) {
+    requireLength(salt, DEFAULT_SALT_BYTES, "salt");
+  } else {
+    requireLength(salt, LEGACY_SALT_BYTES, "salt");
+  }
+  requireLength(iv, IV_BYTES, "iv");
+  const key = await deriveKey(masterPassword, salt, iterations);
   const cipherText = fromBase64(encrypted.cipherText);
 
   const plainBuffer = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
       iv,
+      additionalData: encryptedVersion >= 2 ? VAULT_AAD : undefined,
     },
     key,
     cipherText,
